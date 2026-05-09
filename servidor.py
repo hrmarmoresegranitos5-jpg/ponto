@@ -50,6 +50,20 @@ USE_POSTGRES = bool(DATABASE_URL)
 app = Flask(__name__, static_folder=STATIC_DIR, static_url_path="/static")
 app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(32))
 
+
+@app.after_request
+def _cors(response):
+    """Permite que o GitHub Pages (ou qualquer origem) acesse a API."""
+    response.headers["Access-Control-Allow-Origin"]  = "*"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, X-Token"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    return response
+
+
+@app.route("/api/<path:_>", methods=["OPTIONS"])
+def _options(_):
+    return "", 204
+
 # Tokens em memória: token → { func_id, nome, expires }
 _tokens: dict = {}
 
