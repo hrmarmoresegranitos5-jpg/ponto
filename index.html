@@ -3,494 +3,1003 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <meta name="theme-color" content="#0D0F14">
+  <meta name="theme-color" content="#0a0a08">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Meu Banco">
+  <meta name="apple-mobile-web-app-title" content="HR Mármores">
   <link rel="manifest" href="/manifest.json">
-  <title>Banco de Horas</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <title>HR Mármores — Banco de Horas</title>
   <style>
-    /* ── Reset & Base ─────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --bg:       #0D0F14;
-      --bg2:      #13161E;
-      --card:     #1A1E2A;
-      --border:   #1E2235;
-      --accent:   #00C2FF;
-      --green:    #00E5A0;
-      --red:      #FF4D6A;
-      --yellow:   #FFB830;
-      --purple:   #AA88FF;
-      --hi:       #EAEDF5;
-      --mid:      #8A90A8;
-      --lo:       #4A5068;
-      --input:    #0F1219;
+      --stone:    #0a0a08;
+      --stone2:   #111110;
+      --stone3:   #1c1c19;
+      --stone4:   #252522;
+      --border:   #2e2e2a;
+      --gold:     #c8a96e;
+      --gold2:    #e8c98a;
+      --cream:    #f0ead8;
+      --mid:      #7a7a70;
+      --lo:       #3a3a35;
+      --green:    #6dbf8a;
+      --red:      #d97070;
       --safe-top: env(safe-area-inset-top, 0px);
     }
 
     html, body {
       height: 100%;
-      background: var(--bg);
-      color: var(--hi);
-      font-family: 'Segoe UI', 'SF Pro Display', system-ui, sans-serif;
+      background: var(--stone);
+      color: var(--cream);
+      font-family: 'DM Sans', sans-serif;
       -webkit-font-smoothing: antialiased;
       overflow: hidden;
     }
 
-    /* ── App Shell ────────────────────────────────────── */
     #app {
       height: 100dvh;
       display: flex;
       flex-direction: column;
       overflow: hidden;
+      position: relative;
     }
 
-    /* ── Screens ──────────────────────────────────────── */
-    .screen {
-      display: none;
-      flex-direction: column;
-      flex: 1;
-      overflow: hidden;
+    /* ── Noise texture overlay ──────────────────────── */
+    #app::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 999;
+      opacity: 0.4;
     }
+
+    /* ── Screens ──────────────────────────────────── */
+    .screen { display: none; flex-direction: column; flex: 1; overflow: hidden; }
     .screen.active { display: flex; }
 
-    /* ══════════════════════════════════════════════════
-       TELA DE LOGIN
-    ══════════════════════════════════════════════════ */
-    #login-screen {
+    /* ════════════════════════════════════════════════
+       TELA 1: INTRO / SPLASH
+    ════════════════════════════════════════════════ */
+    #intro-screen {
       align-items: center;
       justify-content: center;
-      padding: 24px;
-      background: var(--bg);
+      padding: 40px 32px;
+      background: var(--stone);
       position: relative;
       overflow: hidden;
+      cursor: pointer;
     }
 
-    /* Fundo decorativo */
-    #login-screen::before {
+    /* Marble veins background */
+    #intro-screen::before {
       content: '';
       position: absolute;
-      top: -120px; left: 50%; transform: translateX(-50%);
-      width: 500px; height: 500px;
-      background: radial-gradient(circle, rgba(0,194,255,0.08) 0%, transparent 70%);
-      pointer-events: none;
-    }
-    #login-screen::after {
-      content: '';
-      position: absolute;
-      bottom: -80px; left: 50%; transform: translateX(-50%);
-      width: 400px; height: 400px;
-      background: radial-gradient(circle, rgba(0,229,160,0.05) 0%, transparent 70%);
+      inset: 0;
+      background:
+        radial-gradient(ellipse 80% 60% at 20% 30%, rgba(200,169,110,0.07) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 80% at 80% 70%, rgba(200,169,110,0.05) 0%, transparent 60%),
+        radial-gradient(ellipse 100% 100% at 50% 50%, rgba(200,169,110,0.03) 0%, transparent 70%);
       pointer-events: none;
     }
 
-    .login-logo {
-      width: 72px; height: 72px;
-      background: linear-gradient(135deg, var(--accent), var(--green));
-      border-radius: 22px;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 32px;
-      margin-bottom: 24px;
-      box-shadow: 0 8px 32px rgba(0,194,255,0.25);
-      animation: logo-in 0.6s cubic-bezier(0.34,1.56,0.64,1) both;
+    /* Diagonal vein lines */
+    #intro-screen::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(125deg, transparent 40%, rgba(200,169,110,0.04) 50%, transparent 60%),
+        linear-gradient(55deg, transparent 30%, rgba(200,169,110,0.03) 45%, transparent 55%);
+      pointer-events: none;
     }
 
-    @keyframes logo-in {
-      from { opacity: 0; transform: scale(0.5) translateY(20px); }
-      to   { opacity: 1; transform: scale(1) translateY(0); }
+    .intro-emblem {
+      position: relative;
+      width: 90px;
+      height: 90px;
+      margin-bottom: 32px;
+      animation: emblem-rise 1.2s cubic-bezier(0.16,1,0.3,1) both;
+    }
+    .intro-emblem svg {
+      width: 100%;
+      height: 100%;
+      filter: drop-shadow(0 0 24px rgba(200,169,110,0.3));
     }
 
-    .login-title {
-      font-size: 26px; font-weight: 700;
-      color: var(--hi);
-      margin-bottom: 6px;
-      animation: fade-up 0.5s 0.1s ease both;
+    @keyframes emblem-rise {
+      from { opacity: 0; transform: translateY(30px) scale(0.8); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
     }
-    .login-sub {
-      font-size: 14px; color: var(--mid);
-      margin-bottom: 40px;
-      animation: fade-up 0.5s 0.15s ease both;
+
+    .intro-hr {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 72px;
+      font-weight: 700;
+      line-height: 1;
+      color: var(--gold);
+      letter-spacing: -2px;
+      animation: text-rise 1s 0.3s cubic-bezier(0.16,1,0.3,1) both;
     }
-    @keyframes fade-up {
-      from { opacity: 0; transform: translateY(12px); }
+
+    .intro-company {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 22px;
+      font-weight: 400;
+      color: var(--cream);
+      letter-spacing: 6px;
+      text-transform: uppercase;
+      margin-top: 4px;
+      animation: text-rise 1s 0.45s cubic-bezier(0.16,1,0.3,1) both;
+    }
+
+    .intro-divider {
+      width: 60px;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--gold), transparent);
+      margin: 24px auto;
+      animation: line-grow 1s 0.6s ease both;
+    }
+    @keyframes line-grow {
+      from { width: 0; opacity: 0; }
+      to   { width: 60px; opacity: 1; }
+    }
+
+    .intro-tagline {
+      font-size: 13px;
+      color: var(--mid);
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      text-align: center;
+      animation: text-rise 1s 0.7s cubic-bezier(0.16,1,0.3,1) both;
+    }
+
+    @keyframes text-rise {
+      from { opacity: 0; transform: translateY(20px); }
       to   { opacity: 1; transform: translateY(0); }
     }
 
-    .login-card {
-      width: 100%; max-width: 340px;
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      padding: 28px 24px;
-      animation: fade-up 0.5s 0.2s ease both;
+    .intro-cta {
+      margin-top: 48px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      animation: text-rise 1s 1s cubic-bezier(0.16,1,0.3,1) both;
     }
 
-    .field-label {
-      font-size: 11px; font-weight: 600;
-      letter-spacing: 0.08em;
-      color: var(--mid);
+    .intro-cta-text {
+      font-size: 12px;
+      color: var(--lo);
+      letter-spacing: 2px;
       text-transform: uppercase;
-      margin-bottom: 8px;
     }
 
-    /* PIN dots */
-    .pin-display {
-      display: flex; gap: 14px; justify-content: center;
-      margin-bottom: 24px;
-    }
-    .pin-dot {
-      width: 14px; height: 14px;
-      border-radius: 50%;
-      background: var(--border);
-      border: 2px solid var(--lo);
-      transition: all 0.15s ease;
-    }
-    .pin-dot.filled {
-      background: var(--accent);
-      border-color: var(--accent);
-      box-shadow: 0 0 10px rgba(0,194,255,0.5);
-      transform: scale(1.1);
-    }
-
-    /* Teclado numérico */
-    .keypad {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 10px;
-    }
-    .key {
-      background: var(--input);
+    .intro-cta-arrow {
+      width: 32px;
+      height: 32px;
       border: 1px solid var(--border);
-      border-radius: 14px;
-      height: 58px;
-      font-size: 22px; font-weight: 600;
-      color: var(--hi);
-      display: flex; align-items: center; justify-content: center;
-      cursor: pointer;
-      transition: all 0.1s ease;
-      user-select: none;
-      -webkit-tap-highlight-color: transparent;
-    }
-    .key:active, .key.pressed {
-      background: var(--border);
-      transform: scale(0.94);
-    }
-    .key.del { font-size: 18px; color: var(--mid); }
-    .key.zero { grid-column: 2; }
-    .key.enter {
-      background: linear-gradient(135deg, var(--accent), #0099cc);
-      border-color: transparent;
-      color: var(--bg);
-      font-size: 18px;
-    }
-    .key.enter:active { opacity: 0.85; }
-
-    .login-erro {
-      margin-top: 16px;
-      padding: 10px 14px;
-      background: rgba(255,77,106,0.12);
-      border: 1px solid rgba(255,77,106,0.3);
-      border-radius: 10px;
-      font-size: 13px; color: var(--red);
-      text-align: center;
-      display: none;
-      animation: shake 0.4s ease;
-    }
-    .login-erro.show { display: block; }
-    @keyframes shake {
-      0%,100% { transform: translateX(0); }
-      25%      { transform: translateX(-6px); }
-      75%      { transform: translateX(6px); }
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--gold);
+      font-size: 14px;
+      animation: bounce-down 2s 2s ease-in-out infinite;
     }
 
-    /* ══════════════════════════════════════════════════
-       TELA PRINCIPAL (saldo)
-    ══════════════════════════════════════════════════ */
-    #main-screen {
+    @keyframes bounce-down {
+      0%, 100% { transform: translateY(0); }
+      50%       { transform: translateY(5px); }
+    }
+
+    /* ════════════════════════════════════════════════
+       TELA 2: QUEM É VOCÊ?
+    ════════════════════════════════════════════════ */
+    #quem-screen {
+      align-items: stretch;
+      padding: 0;
+      background: var(--stone);
       overflow-y: auto;
       -webkit-overflow-scrolling: touch;
     }
 
-    /* Top bar */
-    .topbar {
-      display: flex; align-items: center;
-      padding: 16px 20px 12px;
-      padding-top: calc(16px + var(--safe-top));
-      background: var(--bg2);
+    .quem-header {
+      padding: calc(24px + var(--safe-top)) 28px 28px;
       border-bottom: 1px solid var(--border);
-      position: sticky; top: 0; z-index: 10;
+      background: var(--stone2);
     }
-    .topbar-logo {
-      width: 32px; height: 32px;
-      background: linear-gradient(135deg, var(--accent), var(--green));
-      border-radius: 9px;
-      font-size: 16px;
-      display: flex; align-items: center; justify-content: center;
-      margin-right: 10px;
-    }
-    .topbar-title { font-size: 15px; font-weight: 700; color: var(--hi); }
-    .topbar-sub   { font-size: 11px; color: var(--mid); }
-    .topbar-right { margin-left: auto; }
 
-    .btn-logout {
-      background: none;
-      border: 1px solid var(--border);
-      border-radius: 8px;
+    .quem-pretitle {
+      font-size: 11px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: var(--gold);
+      margin-bottom: 8px;
+    }
+
+    .quem-title {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 30px;
+      font-weight: 600;
+      color: var(--cream);
+      line-height: 1.2;
+    }
+
+    .quem-sub {
+      margin-top: 6px;
+      font-size: 13px;
       color: var(--mid);
-      font-size: 12px;
-      padding: 6px 12px;
+    }
+
+    .quem-list {
+      padding: 20px 20px 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .func-btn {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 18px 20px;
+      background: var(--stone3);
+      border: 1px solid var(--border);
+      border-radius: 16px;
       cursor: pointer;
+      transition: all 0.2s ease;
+      -webkit-tap-highlight-color: transparent;
+      text-align: left;
+      animation: item-in 0.5s ease both;
+    }
+
+    .func-btn:active {
+      background: var(--stone4);
+      border-color: var(--gold);
+      transform: scale(0.98);
+    }
+
+    .func-btn.owner {
+      border-color: rgba(200,169,110,0.3);
+      background: rgba(200,169,110,0.05);
+      margin-top: 10px;
+    }
+
+    @keyframes item-in {
+      from { opacity: 0; transform: translateX(-16px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+
+    .func-avatar {
+      width: 46px;
+      height: 46px;
+      border-radius: 14px;
+      background: var(--stone4);
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--gold);
+      flex-shrink: 0;
+    }
+
+    .func-btn.owner .func-avatar {
+      background: rgba(200,169,110,0.1);
+      border-color: rgba(200,169,110,0.3);
+      font-size: 18px;
+    }
+
+    .func-info { flex: 1; }
+
+    .func-name {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--cream);
+    }
+
+    .func-role {
+      font-size: 12px;
+      color: var(--mid);
+      margin-top: 2px;
+    }
+
+    .func-check {
+      font-size: 16px;
+      color: var(--green);
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    .func-btn.logged .func-check { opacity: 1; }
+    .func-btn.logged .func-role { color: var(--green); }
+
+    .divider-label {
+      padding: 8px 20px 4px;
+      font-size: 10px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--lo);
+    }
+
+    /* ════════════════════════════════════════════════
+       TELA 3: PIN
+    ════════════════════════════════════════════════ */
+    #pin-screen {
+      align-items: center;
+      justify-content: center;
+      padding: 32px 28px;
+      background: var(--stone);
+      position: relative;
+      overflow: hidden;
+    }
+
+    #pin-screen::before {
+      content: '';
+      position: absolute;
+      top: -200px; left: 50%; transform: translateX(-50%);
+      width: 500px; height: 400px;
+      background: radial-gradient(circle, rgba(200,169,110,0.06) 0%, transparent 65%);
+      pointer-events: none;
+    }
+
+    .pin-back {
+      position: absolute;
+      top: calc(20px + var(--safe-top));
+      left: 20px;
+      width: 38px;
+      height: 38px;
+      background: var(--stone3);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      cursor: pointer;
+      color: var(--mid);
       -webkit-tap-highlight-color: transparent;
     }
-    .btn-logout:active { background: var(--border); }
 
-    /* Conteúdo principal */
-    .main-content {
-      padding: 20px 16px 32px;
-      display: flex; flex-direction: column; gap: 16px;
+    .pin-for-name {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 28px;
+      font-weight: 600;
+      color: var(--cream);
+      margin-bottom: 4px;
+      text-align: center;
     }
 
-    /* Card de saldo grande */
-    .saldo-card {
-      background: var(--card);
+    .pin-instruction {
+      font-size: 13px;
+      color: var(--mid);
+      margin-bottom: 36px;
+      text-align: center;
+    }
+
+    .pin-dots {
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+      margin-bottom: 36px;
+    }
+
+    .pin-dot {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--stone4);
+      border: 1.5px solid var(--lo);
+      transition: all 0.15s ease;
+    }
+
+    .pin-dot.filled {
+      background: var(--gold);
+      border-color: var(--gold);
+      box-shadow: 0 0 12px rgba(200,169,110,0.4);
+      transform: scale(1.15);
+    }
+
+    .keypad {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      width: 100%;
+      max-width: 300px;
+    }
+
+    .key {
+      background: var(--stone3);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      height: 62px;
+      font-size: 24px;
+      font-weight: 500;
+      color: var(--cream);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.1s ease;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      font-family: 'DM Sans', sans-serif;
+    }
+
+    .key:active, .key.pressed {
+      background: var(--stone4);
+      transform: scale(0.94);
+    }
+
+    .key.del { font-size: 20px; color: var(--mid); }
+    .key.zero { grid-column: 2; }
+
+    .key.enter {
+      background: var(--gold);
+      border-color: var(--gold);
+      color: var(--stone);
+      font-size: 18px;
+      font-weight: 700;
+    }
+    .key.enter:active { opacity: 0.85; transform: scale(0.94); }
+
+    .pin-erro {
+      margin-top: 20px;
+      padding: 12px 18px;
+      background: rgba(217,112,112,0.1);
+      border: 1px solid rgba(217,112,112,0.25);
+      border-radius: 12px;
+      font-size: 13px;
+      color: var(--red);
+      text-align: center;
+      display: none;
+      animation: shake 0.4s ease;
+      max-width: 300px;
+    }
+    .pin-erro.show { display: block; }
+
+    @keyframes shake {
+      0%,100% { transform: translateX(0); }
+      25%      { transform: translateX(-8px); }
+      75%      { transform: translateX(8px); }
+    }
+
+    /* ════════════════════════════════════════════════
+       TELA 4: SALDO FUNCIONÁRIO
+    ════════════════════════════════════════════════ */
+    #saldo-screen {
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      background: var(--stone);
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      padding: calc(16px + var(--safe-top)) 20px 14px;
+      background: var(--stone2);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      gap: 12px;
+    }
+
+    .topbar-back {
+      width: 34px; height: 34px;
+      background: var(--stone3);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; color: var(--mid);
+      cursor: pointer;
+      flex-shrink: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .topbar-info { flex: 1; }
+    .topbar-name {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--cream);
+      line-height: 1.1;
+    }
+    .topbar-sub { font-size: 11px; color: var(--mid); margin-top: 1px; }
+
+    .saldo-content {
+      padding: 20px 16px 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .saldo-hero {
+      background: var(--stone3);
       border: 1px solid var(--border);
       border-radius: 20px;
       overflow: hidden;
+      position: relative;
     }
-    .saldo-bar {
-      height: 4px;
-      background: var(--accent);
-      transition: background 0.4s ease;
-    }
-    .saldo-bar.positivo { background: linear-gradient(90deg, var(--green), var(--accent)); }
-    .saldo-bar.negativo { background: linear-gradient(90deg, var(--red), #cc2244); }
 
-    .saldo-inner {
-      padding: 24px 22px;
+    .saldo-hero-glow {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      transition: opacity 0.5s;
+      pointer-events: none;
+      border-radius: 20px;
     }
+    .saldo-hero-glow.pos {
+      background: radial-gradient(ellipse at 50% 0%, rgba(109,191,138,0.12) 0%, transparent 60%);
+      opacity: 1;
+    }
+    .saldo-hero-glow.neg {
+      background: radial-gradient(ellipse at 50% 0%, rgba(217,112,112,0.12) 0%, transparent 60%);
+      opacity: 1;
+    }
+
+    .saldo-hero-bar {
+      height: 3px;
+      transition: background 0.5s;
+    }
+    .saldo-hero-bar.pos { background: linear-gradient(90deg, var(--green), #4ae0a0); }
+    .saldo-hero-bar.neg { background: linear-gradient(90deg, var(--red), #ff9090); }
+    .saldo-hero-bar.zer { background: var(--border); }
+
+    .saldo-hero-body {
+      padding: 26px 22px 22px;
+      position: relative;
+    }
+
     .saldo-label {
-      font-size: 11px; font-weight: 600;
-      letter-spacing: 0.08em;
-      color: var(--mid); text-transform: uppercase;
-      margin-bottom: 6px;
-    }
-    .saldo-valor {
-      font-size: 52px; font-weight: 800;
-      line-height: 1;
-      transition: color 0.4s ease;
-      letter-spacing: -2px;
-    }
-    .saldo-valor.positivo { color: var(--green); }
-    .saldo-valor.negativo { color: var(--red); }
-    .saldo-valor.zero     { color: var(--mid); }
-    .saldo-desc {
-      margin-top: 8px;
-      font-size: 13px; color: var(--mid);
-    }
-    .saldo-atualizado {
-      margin-top: 4px;
-      font-size: 11px; color: var(--lo);
+      font-size: 10px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: var(--mid);
+      margin-bottom: 10px;
     }
 
-    /* Mini cards de info */
-    .info-grid {
+    .saldo-valor {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 64px;
+      font-weight: 700;
+      line-height: 1;
+      letter-spacing: -2px;
+      transition: color 0.4s;
+    }
+    .saldo-valor.pos { color: var(--green); }
+    .saldo-valor.neg { color: var(--red); }
+    .saldo-valor.zer { color: var(--mid); }
+
+    .saldo-desc {
+      margin-top: 10px;
+      font-size: 13px;
+      color: var(--mid);
+      line-height: 1.5;
+    }
+
+    .saldo-atu {
+      margin-top: 6px;
+      font-size: 11px;
+      color: var(--lo);
+    }
+
+    .grid2 {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 10px;
     }
-    .info-card {
-      background: var(--card);
+
+    .mini-card {
+      background: var(--stone3);
       border: 1px solid var(--border);
       border-radius: 14px;
       padding: 16px 14px;
     }
-    .info-card-label {
-      font-size: 10px; font-weight: 600;
-      text-transform: uppercase; letter-spacing: 0.07em;
-      color: var(--lo); margin-bottom: 6px;
-    }
-    .info-card-val {
-      font-size: 22px; font-weight: 700;
-    }
-    .info-card-val.h { color: var(--accent); }
-    .info-card-val.m { color: var(--purple); }
 
-    /* Seção histórico */
-    .section-title {
-      font-size: 11px; font-weight: 600;
-      text-transform: uppercase; letter-spacing: 0.08em;
-      color: var(--mid);
+    .mini-card-label {
+      font-size: 10px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--lo);
+      margin-bottom: 6px;
+    }
+
+    .mini-card-val {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 28px;
+      font-weight: 600;
+      color: var(--gold);
+    }
+
+    .section-head {
+      font-size: 10px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: var(--lo);
       padding: 0 2px;
     }
 
-    .historico-list {
-      background: var(--card);
+    .hist-list {
+      background: var(--stone3);
       border: 1px solid var(--border);
       border-radius: 16px;
       overflow: hidden;
     }
-    .mov-item {
-      display: flex; align-items: center;
+
+    .mov {
+      display: flex;
+      align-items: center;
+      gap: 12px;
       padding: 14px 16px;
       border-bottom: 1px solid var(--border);
-      gap: 12px;
       animation: fade-in 0.3s ease both;
     }
-    .mov-item:last-child { border-bottom: none; }
+    .mov:last-child { border-bottom: none; }
+
     @keyframes fade-in {
       from { opacity: 0; transform: translateY(6px); }
       to   { opacity: 1; transform: translateY(0); }
     }
 
-    .mov-icon {
+    .mov-ico {
       width: 36px; height: 36px;
       border-radius: 10px;
       display: flex; align-items: center; justify-content: center;
-      font-size: 16px; flex-shrink: 0;
+      font-size: 14px;
+      flex-shrink: 0;
     }
-    .mov-icon.cred { background: rgba(0,229,160,0.12); }
-    .mov-icon.deb  { background: rgba(255,183,48,0.12); }
+    .mov-ico.c { background: rgba(109,191,138,0.12); }
+    .mov-ico.d { background: rgba(217,112,112,0.12); }
 
     .mov-body { flex: 1; min-width: 0; }
-    .mov-desc {
-      font-size: 13px; color: var(--hi);
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }
-    .mov-data { font-size: 11px; color: var(--lo); margin-top: 2px; }
+    .mov-desc { font-size: 13px; color: var(--cream); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .mov-date { font-size: 11px; color: var(--lo); margin-top: 2px; }
 
-    .mov-valor {
-      font-size: 15px; font-weight: 700; flex-shrink: 0;
-    }
-    .mov-valor.cred { color: var(--green); }
-    .mov-valor.deb  { color: var(--yellow); }
+    .mov-val { font-size: 15px; font-weight: 600; flex-shrink: 0; }
+    .mov-val.c { color: var(--green); }
+    .mov-val.d { color: var(--red); }
 
-    .empty-state {
-      padding: 32px;
-      text-align: center;
-      color: var(--lo);
-      font-size: 14px;
+    .empty { padding: 30px; text-align: center; color: var(--lo); font-size: 13px; }
+
+    .btn-atualizar {
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      width: 100%;
+      background: var(--stone3);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      color: var(--mid);
+      font-size: 13px;
+      padding: 14px;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      font-family: 'DM Sans', sans-serif;
+    }
+    .btn-atualizar:active { background: var(--stone4); }
+
+    /* ════════════════════════════════════════════════
+       TELA 5: PAINEL DO PROPRIETÁRIO
+    ════════════════════════════════════════════════ */
+    #owner-screen {
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      background: var(--stone);
     }
 
-    /* ── Loading / spinner ───────────────────────────── */
+    .owner-header {
+      padding: calc(16px + var(--safe-top)) 20px 14px;
+      background: var(--stone2);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .owner-content {
+      padding: 20px 16px 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .owner-total {
+      background: var(--stone3);
+      border: 1px solid rgba(200,169,110,0.2);
+      border-radius: 20px;
+      padding: 24px 22px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .owner-total::before {
+      content: '';
+      position: absolute;
+      top: -60px; right: -60px;
+      width: 180px; height: 180px;
+      background: radial-gradient(circle, rgba(200,169,110,0.08) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .owner-total-label {
+      font-size: 10px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: var(--gold);
+      margin-bottom: 8px;
+    }
+
+    .owner-total-val {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 48px;
+      font-weight: 700;
+      color: var(--red);
+      letter-spacing: -2px;
+    }
+
+    .owner-total-desc {
+      font-size: 12px;
+      color: var(--mid);
+      margin-top: 6px;
+    }
+
+    .owner-func-card {
+      background: var(--stone3);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+      animation: fade-in 0.4s ease both;
+    }
+
+    .owner-func-head {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 16px 18px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .owner-func-av {
+      width: 40px; height: 40px;
+      border-radius: 11px;
+      background: var(--stone4);
+      border: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--gold);
+      flex-shrink: 0;
+    }
+
+    .owner-func-name { font-size: 15px; font-weight: 600; color: var(--cream); }
+    .owner-func-role { font-size: 11px; color: var(--mid); margin-top: 1px; }
+
+    .owner-func-saldo {
+      padding: 14px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .owner-saldo-lbl { font-size: 11px; color: var(--lo); }
+
+    .owner-saldo-val {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 28px;
+      font-weight: 600;
+    }
+    .owner-saldo-val.pos { color: var(--green); }
+    .owner-saldo-val.neg { color: var(--red); }
+    .owner-saldo-val.zer { color: var(--mid); }
+
+    /* ── Spinner ──────────────────────────────────── */
     .spinner {
-      width: 28px; height: 28px;
-      border: 3px solid var(--border);
-      border-top-color: var(--accent);
+      width: 26px; height: 26px;
+      border: 2.5px solid var(--border);
+      border-top-color: var(--gold);
       border-radius: 50%;
       animation: spin 0.7s linear infinite;
-      margin: 32px auto;
+      margin: 48px auto;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* ── Toast ───────────────────────────────────────── */
+    /* ── Toast ───────────────────────────────────── */
     #toast {
-      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
-      background: var(--card);
+      position: fixed;
+      bottom: 28px;
+      left: 50%;
+      transform: translateX(-50%) translateY(0);
+      background: var(--stone4);
       border: 1px solid var(--border);
       border-radius: 12px;
-      padding: 12px 20px;
-      font-size: 14px; color: var(--hi);
-      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-      z-index: 999;
-      transition: opacity 0.3s ease, transform 0.3s ease;
-      opacity: 0; pointer-events: none;
+      padding: 12px 22px;
+      font-size: 13px;
+      color: var(--cream);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+      z-index: 9999;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease, transform 0.25s ease;
       white-space: nowrap;
     }
     #toast.show {
       opacity: 1;
       transform: translateX(-50%) translateY(-4px);
     }
-
-    /* Botão de atualizar */
-    .btn-refresh {
-      display: flex; align-items: center; justify-content: center; gap: 8px;
-      width: 100%;
-      background: var(--input);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      color: var(--mid);
-      font-size: 13px;
-      padding: 13px;
-      cursor: pointer;
-      -webkit-tap-highlight-color: transparent;
-    }
-    .btn-refresh:active { background: var(--border); }
   </style>
 </head>
 <body>
 <div id="app">
 
-  <!-- ══ TELA DE LOGIN ══════════════════════════════════ -->
-  <div id="login-screen" class="screen active">
-    <div class="login-logo">⏱</div>
-    <div class="login-title">Banco de Horas</div>
-    <div class="login-sub">Digite seu PIN para consultar seu saldo</div>
+  <!-- ══ TELA 1: INTRO ════════════════════════════════ -->
+  <div id="intro-screen" class="screen active" onclick="irParaQuem()">
+    <div class="intro-emblem">
+      <!-- Marble/diamond logo SVG -->
+      <svg viewBox="0 0 90 90" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <polygon points="45,5 85,45 45,85 5,45" fill="none" stroke="#c8a96e" stroke-width="1.5" opacity="0.3"/>
+        <polygon points="45,15 75,45 45,75 15,45" fill="none" stroke="#c8a96e" stroke-width="1" opacity="0.6"/>
+        <polygon points="45,25 65,45 45,65 25,45" fill="#c8a96e" opacity="0.15"/>
+        <polygon points="45,25 65,45 45,65 25,45" fill="none" stroke="#c8a96e" stroke-width="1.5"/>
+        <line x1="45" y1="5" x2="45" y2="85" stroke="#c8a96e" stroke-width="0.5" opacity="0.2"/>
+        <line x1="5" y1="45" x2="85" y2="45" stroke="#c8a96e" stroke-width="0.5" opacity="0.2"/>
+        <circle cx="45" cy="45" r="4" fill="#c8a96e"/>
+        <circle cx="45" cy="45" r="7" fill="none" stroke="#c8a96e" stroke-width="0.8" opacity="0.5"/>
+      </svg>
+    </div>
 
-    <div class="login-card">
-      <div class="field-label">Seu PIN</div>
-      <div class="pin-display" id="pin-display">
-        <div class="pin-dot" id="d0"></div>
-        <div class="pin-dot" id="d1"></div>
-        <div class="pin-dot" id="d2"></div>
-        <div class="pin-dot" id="d3"></div>
-      </div>
+    <div class="intro-hr">HR</div>
+    <div class="intro-company">Mármores</div>
+    <div class="intro-divider"></div>
+    <div class="intro-tagline">Qualidade em pedra natural</div>
 
-      <div class="keypad" id="keypad">
-        <div class="key" data-n="1">1</div>
-        <div class="key" data-n="2">2</div>
-        <div class="key" data-n="3">3</div>
-        <div class="key" data-n="4">4</div>
-        <div class="key" data-n="5">5</div>
-        <div class="key" data-n="6">6</div>
-        <div class="key" data-n="7">7</div>
-        <div class="key" data-n="8">8</div>
-        <div class="key" data-n="9">9</div>
-        <div class="key del" id="key-del">⌫</div>
-        <div class="key zero" data-n="0">0</div>
-        <div class="key enter" id="key-enter">✓</div>
-      </div>
-
-      <div class="login-erro" id="login-erro">PIN inválido. Tente novamente.</div>
+    <div class="intro-cta">
+      <div class="intro-cta-text">Toque para continuar</div>
+      <div class="intro-cta-arrow">↓</div>
     </div>
   </div>
 
-  <!-- ══ TELA PRINCIPAL ════════════════════════════════ -->
-  <div id="main-screen" class="screen">
-    <div class="topbar">
-      <div class="topbar-logo">⏱</div>
-      <div>
-        <div class="topbar-title" id="tb-nome">—</div>
-        <div class="topbar-sub">Banco de Horas</div>
-      </div>
-      <div class="topbar-right">
-        <button class="btn-logout" id="btn-logout">Sair</button>
-      </div>
+  <!-- ══ TELA 2: COM QUEM EU FALO? ═════════════════════ -->
+  <div id="quem-screen" class="screen">
+    <div class="quem-header">
+      <div class="quem-pretitle">HR Mármores</div>
+      <div class="quem-title">Bem-vindo ao<br>Banco de Horas</div>
+      <div class="quem-sub">Com quem eu falo?</div>
     </div>
 
-    <div class="main-content" id="main-content">
+    <div class="quem-list" id="quem-list">
+      <!-- Funcionários inseridos via JS -->
+    </div>
+  </div>
+
+  <!-- ══ TELA 3: PIN ════════════════════════════════════ -->
+  <div id="pin-screen" class="screen">
+    <div class="pin-back" onclick="irParaQuem()">←</div>
+
+    <div class="pin-for-name" id="pin-for-name">Nome</div>
+    <div class="pin-instruction">Digite seu PIN de 4 dígitos</div>
+
+    <div class="pin-dots">
+      <div class="pin-dot" id="pd0"></div>
+      <div class="pin-dot" id="pd1"></div>
+      <div class="pin-dot" id="pd2"></div>
+      <div class="pin-dot" id="pd3"></div>
+    </div>
+
+    <div class="keypad">
+      <div class="key" data-n="1">1</div>
+      <div class="key" data-n="2">2</div>
+      <div class="key" data-n="3">3</div>
+      <div class="key" data-n="4">4</div>
+      <div class="key" data-n="5">5</div>
+      <div class="key" data-n="6">6</div>
+      <div class="key" data-n="7">7</div>
+      <div class="key" data-n="8">8</div>
+      <div class="key" data-n="9">9</div>
+      <div class="key del" id="key-del">⌫</div>
+      <div class="key zero" data-n="0">0</div>
+      <div class="key enter" id="key-enter">✓</div>
+    </div>
+
+    <div class="pin-erro" id="pin-erro">PIN incorreto. Tente novamente.</div>
+  </div>
+
+  <!-- ══ TELA 4: SALDO DO FUNCIONÁRIO ══════════════════ -->
+  <div id="saldo-screen" class="screen">
+    <div class="topbar">
+      <div class="topbar-back" onclick="irParaQuem()">←</div>
+      <div class="topbar-info">
+        <div class="topbar-name" id="tb-name">—</div>
+        <div class="topbar-sub">Banco de Horas · HR Mármores</div>
+      </div>
+    </div>
+    <div class="saldo-content" id="saldo-content">
+      <div class="spinner"></div>
+    </div>
+  </div>
+
+  <!-- ══ TELA 5: PAINEL DO PROPRIETÁRIO ════════════════ -->
+  <div id="owner-screen" class="screen">
+    <div class="owner-header">
+      <div class="topbar-back" onclick="irParaQuem()">←</div>
+      <div class="topbar-info">
+        <div class="topbar-name">Painel do Proprietário</div>
+        <div class="topbar-sub">HR Mármores</div>
+      </div>
+    </div>
+    <div class="owner-content" id="owner-content">
       <div class="spinner"></div>
     </div>
   </div>
 
 </div>
 
-<!-- Toast -->
 <div id="toast"></div>
 
 <script>
-// ────────────────────────────────────────────────────────
-// STATE
-// ────────────────────────────────────────────────────────
-let _pin    = "";
-let _token  = localStorage.getItem("bh_token") || "";
-let _nome   = localStorage.getItem("bh_nome")  || "";
+// ═══════════════════════════════════════════════════════
+// CONFIG DOS FUNCIONÁRIOS
+// Para adicionar ou remover funcionários, edite aqui.
+// "owner: true" = é o proprietário (vê painel geral)
+// ═══════════════════════════════════════════════════════
+const FUNCIONARIOS = [
+  { nome: "Fabricio", role: "Funcionário" },
+  { nome: "Gibs",     role: "Funcionário" },
+  { nome: "Hugo",     role: "Funcionário" },
+  { nome: "Tiago",    role: "Funcionário" },
+  { nome: "Proprietário", role: "Acesso total", owner: true },
+];
 
-// ────────────────────────────────────────────────────────
-// UTILS
-// ────────────────────────────────────────────────────────
+// PIN do proprietário para ver o painel geral
+// Troque para um PIN seguro!
+const OWNER_PIN = "0000";
+
+// ═══════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════
+let _currentFunc = null;   // { nome, role, owner }
+let _pin = "";
+
+// Tokens salvos por funcionário: { "Fabricio": "token...", ... }
+function getSavedTokens() {
+  try { return JSON.parse(localStorage.getItem("bh_tokens") || "{}"); } catch { return {}; }
+}
+function saveToken(nome, token) {
+  const t = getSavedTokens();
+  t[nome] = token;
+  localStorage.setItem("bh_tokens", JSON.stringify(t));
+}
+function getToken(nome) { return getSavedTokens()[nome] || ""; }
+function clearToken(nome) {
+  const t = getSavedTokens();
+  delete t[nome];
+  localStorage.setItem("bh_tokens", JSON.stringify(t));
+}
+
+// PIN do proprietário salvo
+function getOwnerSaved() { return localStorage.getItem("bh_owner_ok") === "1"; }
+function setOwnerSaved()  { localStorage.setItem("bh_owner_ok", "1"); }
+
+// ═══════════════════════════════════════════════════════
+// NAVEGAÇÃO
+// ═══════════════════════════════════════════════════════
+function showScreen(id) {
+  document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
+  document.getElementById(id).classList.add("active");
+}
+
 function toast(msg, dur = 2500) {
   const el = document.getElementById("toast");
   el.textContent = msg;
@@ -498,62 +1007,189 @@ function toast(msg, dur = 2500) {
   setTimeout(() => el.classList.remove("show"), dur);
 }
 
-function showScreen(id) {
-  document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
-  document.getElementById(id).classList.add("active");
+function irParaQuem() {
+  _pin = "";
+  _currentFunc = null;
+  updateDots();
+  hidePinErro();
+  buildQuemList();
+  showScreen("quem-screen");
 }
 
-// ────────────────────────────────────────────────────────
-// TECLADO PIN
-// ────────────────────────────────────────────────────────
-function updateDots() {
-  for (let i = 0; i < 4; i++) {
-    document.getElementById("d" + i).classList.toggle("filled", i < _pin.length);
+function irParaQuem() {
+  _pin = "";
+  _currentFunc = null;
+  updateDots();
+  hidePinErro();
+  buildQuemList();
+  showScreen("quem-screen");
+}
+
+// ═══════════════════════════════════════════════════════
+// TELA INTRO
+// ═══════════════════════════════════════════════════════
+function irParaQuem() {
+  _pin = "";
+  _currentFunc = null;
+  updateDots();
+  hidePinErro();
+  buildQuemList();
+  showScreen("quem-screen");
+}
+
+// ═══════════════════════════════════════════════════════
+// TELA COM QUEM EU FALO
+// ═══════════════════════════════════════════════════════
+function buildQuemList() {
+  const list = document.getElementById("quem-list");
+  list.innerHTML = "";
+
+  // Separa funcionários e proprietário
+  const funcs  = FUNCIONARIOS.filter(f => !f.owner);
+  const owners = FUNCIONARIOS.filter(f => f.owner);
+
+  // Funcionários
+  const lblFunc = document.createElement("div");
+  lblFunc.className = "divider-label";
+  lblFunc.textContent = "Funcionários";
+  list.appendChild(lblFunc);
+
+  funcs.forEach((f, i) => {
+    const btn = criarBotaoFunc(f, i);
+    list.appendChild(btn);
+  });
+
+  // Proprietário
+  if (owners.length) {
+    const lblOwn = document.createElement("div");
+    lblOwn.className = "divider-label";
+    lblOwn.style.marginTop = "8px";
+    lblOwn.textContent = "Gestão";
+    list.appendChild(lblOwn);
+
+    owners.forEach((f, i) => {
+      const btn = criarBotaoFunc(f, funcs.length + i);
+      list.appendChild(btn);
+    });
   }
 }
 
-document.getElementById("keypad").addEventListener("click", e => {
+function criarBotaoFunc(f, idx) {
+  const btn = document.createElement("div");
+  btn.className = "func-btn" + (f.owner ? " owner" : "");
+  btn.style.animationDelay = (idx * 0.07) + "s";
+
+  // Verifica se já está logado
+  const jaLogado = f.owner ? getOwnerSaved() : !!getToken(f.nome);
+  if (jaLogado) btn.classList.add("logged");
+
+  const inicial = f.owner ? "👑" : f.nome[0].toUpperCase();
+  const roleText = jaLogado
+    ? (f.owner ? "Acesso ativo" : "Sessão ativa")
+    : f.role;
+
+  btn.innerHTML = `
+    <div class="func-avatar">${inicial}</div>
+    <div class="func-info">
+      <div class="func-name">${f.nome}</div>
+      <div class="func-role">${roleText}</div>
+    </div>
+    <div class="func-check">✓</div>
+  `;
+
+  btn.addEventListener("click", () => selecionarFunc(f));
+  return btn;
+}
+
+function selecionarFunc(f) {
+  _currentFunc = f;
+
+  if (f.owner) {
+    // Proprietário: verifica se já autenticou nesta sessão
+    if (getOwnerSaved()) {
+      abrirOwnerPanel();
+    } else {
+      abrirPinScreen();
+    }
+    return;
+  }
+
+  // Funcionário: verifica se tem token salvo
+  const token = getToken(f.nome);
+  if (token) {
+    // Já logado — vai direto pro saldo
+    document.getElementById("tb-name").textContent = f.nome;
+    showScreen("saldo-screen");
+    carregarSaldo(token, f.nome);
+  } else {
+    abrirPinScreen();
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// TELA PIN
+// ═══════════════════════════════════════════════════════
+function abrirPinScreen() {
+  _pin = "";
+  updateDots();
+  hidePinErro();
+  document.getElementById("pin-for-name").textContent = _currentFunc.nome;
+  showScreen("pin-screen");
+}
+
+function updateDots() {
+  for (let i = 0; i < 4; i++) {
+    document.getElementById("pd" + i).classList.toggle("filled", i < _pin.length);
+  }
+}
+
+function hidePinErro() {
+  document.getElementById("pin-erro").classList.remove("show");
+}
+
+document.querySelector(".keypad").addEventListener("click", e => {
   const key = e.target.closest(".key");
   if (!key) return;
-
-  // Feedback tátil
   if (navigator.vibrate) navigator.vibrate(10);
-
   key.classList.add("pressed");
   setTimeout(() => key.classList.remove("pressed"), 120);
 
   if (key.id === "key-del") {
     _pin = _pin.slice(0, -1);
     updateDots();
-    hideErro();
+    hidePinErro();
     return;
   }
   if (key.id === "key-enter") {
-    if (_pin.length >= 4) doLogin();
+    if (_pin.length >= 4) fazerLogin();
     return;
   }
   const n = key.dataset.n;
-  if (n !== undefined && _pin.length < 8) {
+  if (n !== undefined && _pin.length < 6) {
     _pin += n;
     updateDots();
-    hideErro();
-    // Auto-login com 4 dígitos (PIN padrão)
-    if (_pin.length === 4) setTimeout(doLogin, 200);
+    hidePinErro();
+    if (_pin.length === 4) setTimeout(fazerLogin, 200);
   }
 });
 
-function hideErro() {
-  document.getElementById("login-erro").classList.remove("show");
-}
-
-// ────────────────────────────────────────────────────────
-// LOGIN
-// ────────────────────────────────────────────────────────
-async function doLogin() {
+async function fazerLogin() {
   const pin = _pin;
   _pin = "";
   updateDots();
 
+  // Proprietário — verifica PIN local
+  if (_currentFunc.owner) {
+    if (pin === OWNER_PIN) {
+      setOwnerSaved();
+      abrirOwnerPanel();
+    } else {
+      mostrarPinErro();
+    }
+    return;
+  }
+
+  // Funcionário — chama a API
   try {
     const res  = await fetch("/api/login", {
       method: "POST",
@@ -563,153 +1199,183 @@ async function doLogin() {
     const data = await res.json();
 
     if (!res.ok) {
-      document.getElementById("login-erro").classList.add("show");
+      mostrarPinErro();
       return;
     }
 
-    _token = data.token;
-    _nome  = data.nome;
-    localStorage.setItem("bh_token", _token);
-    localStorage.setItem("bh_nome",  _nome);
-
-    document.getElementById("tb-nome").textContent = _nome;
-    showScreen("main-screen");
-    carregarSaldo();
+    // Salva token permanentemente no dispositivo
+    saveToken(_currentFunc.nome, data.token);
+    toast("✓ Bem-vindo, " + data.nome + "!");
+    document.getElementById("tb-name").textContent = data.nome;
+    showScreen("saldo-screen");
+    carregarSaldo(data.token, data.nome);
   } catch (err) {
-    document.getElementById("login-erro").classList.add("show");
+    mostrarPinErro();
   }
 }
 
-// ────────────────────────────────────────────────────────
-// SALDO
-// ────────────────────────────────────────────────────────
-async function carregarSaldo() {
-  const content = document.getElementById("main-content");
+function mostrarPinErro() {
+  document.getElementById("pin-erro").classList.add("show");
+  if (navigator.vibrate) navigator.vibrate([40, 30, 40]);
+}
+
+// ═══════════════════════════════════════════════════════
+// TELA SALDO
+// ═══════════════════════════════════════════════════════
+async function carregarSaldo(token, nome) {
+  const content = document.getElementById("saldo-content");
   content.innerHTML = '<div class="spinner"></div>';
 
   try {
-    const res  = await fetch("/api/saldo", {
-      headers: { "X-Token": _token },
-    });
+    const res = await fetch("/api/saldo", { headers: { "X-Token": token } });
 
     if (res.status === 401) {
-      logout();
+      // Token expirado — limpa e pede PIN de novo
+      clearToken(nome);
+      toast("Sessão expirada. Entre novamente.");
+      irParaQuem();
       return;
     }
 
     const d = await res.json();
-    renderSaldo(d);
+    renderSaldo(d, token, nome);
   } catch (err) {
     content.innerHTML = `
-      <div class="empty-state">
-        Não foi possível carregar o saldo.<br>Verifique a conexão com a rede da empresa.
-      </div>
-      <button class="btn-refresh" onclick="carregarSaldo()">
-        ↻ Tentar novamente
-      </button>
+      <div class="empty">Sem conexão com o servidor.<br>Verifique sua internet.</div>
+      <button class="btn-atualizar" onclick="carregarSaldo('${token}','${nome}')">↻ Tentar novamente</button>
     `;
   }
 }
 
-function renderSaldo(d) {
-  const content = document.getElementById("main-content");
+function renderSaldo(d, token, nome) {
+  const content = document.getElementById("saldo-content");
+  const cls  = d.saldo_positivo ? "pos" : (d.saldo_min === 0 ? "zer" : "neg");
+  const desc = d.saldo_positivo
+    ? `${d.saldo_horas}h ${d.saldo_mins}min de horas extras acumuladas`
+    : (d.saldo_min === 0 ? "Saldo zerado" : `${d.saldo_horas}h ${d.saldo_mins}min negativos`);
 
-  const cls     = d.saldo_positivo ? "positivo" : (d.saldo_min === 0 ? "zero" : "negativo");
-  const barCls  = d.saldo_positivo ? "positivo" : "negativo";
-  const descTxt = d.saldo_positivo
-    ? `Você tem ${d.saldo_horas}h ${d.saldo_mins}min de horas extras acumuladas`
-    : `Saldo negativo — ${d.saldo_horas}h ${d.saldo_mins}min`;
-  const atu = d.atualizado_em
-    ? `Atualizado em ${d.atualizado_em}`
-    : "";
-
-  // Histórico HTML
   let histHTML = "";
   if (!d.historico || d.historico.length === 0) {
-    histHTML = `<div class="empty-state">Nenhuma movimentação ainda</div>`;
+    histHTML = '<div class="empty">Nenhuma movimentação ainda</div>';
   } else {
     histHTML = d.historico.map((m, i) => {
-      const isCred = m.tipo === "credito";
-      const icon   = isCred ? "➕" : "➖";
-      const cls2   = isCred ? "cred" : "deb";
+      const c = m.tipo === "credito";
       return `
-        <div class="mov-item" style="animation-delay:${i * 0.04}s">
-          <div class="mov-icon ${cls2}">${icon}</div>
+        <div class="mov" style="animation-delay:${i*0.04}s">
+          <div class="mov-ico ${c ? "c" : "d"}">${c ? "+" : "−"}</div>
           <div class="mov-body">
-            <div class="mov-desc">${m.descricao || (isCred ? "Horas extras" : "Retirada")}</div>
-            <div class="mov-data">${m.data}</div>
+            <div class="mov-desc">${m.descricao || (c ? "Horas extras" : "Retirada")}</div>
+            <div class="mov-date">${m.data}</div>
           </div>
-          <div class="mov-valor ${cls2}">${m.valor_fmt}</div>
+          <div class="mov-val ${c ? "c" : "d"}">${m.valor_fmt}</div>
         </div>`;
     }).join("");
   }
 
   content.innerHTML = `
-    <div class="saldo-card">
-      <div class="saldo-bar ${barCls}"></div>
-      <div class="saldo-inner">
-        <div class="saldo-label">Seu saldo acumulado</div>
+    <div class="saldo-hero">
+      <div class="saldo-hero-glow ${cls}"></div>
+      <div class="saldo-hero-bar ${cls}"></div>
+      <div class="saldo-hero-body">
+        <div class="saldo-label">Saldo acumulado</div>
         <div class="saldo-valor ${cls}">${d.saldo_fmt}</div>
-        <div class="saldo-desc">${descTxt}</div>
-        <div class="saldo-atualizado">${atu}</div>
+        <div class="saldo-desc">${desc}</div>
+        ${d.atualizado_em ? `<div class="saldo-atu">Atualizado em ${d.atualizado_em}</div>` : ""}
       </div>
     </div>
 
-    <div class="info-grid">
-      <div class="info-card">
-        <div class="info-card-label">Horas</div>
-        <div class="info-card-val h">${d.saldo_horas}h</div>
+    <div class="grid2">
+      <div class="mini-card">
+        <div class="mini-card-label">Horas</div>
+        <div class="mini-card-val">${d.saldo_horas}h</div>
       </div>
-      <div class="info-card">
-        <div class="info-card-label">Minutos</div>
-        <div class="info-card-val m">${d.saldo_mins}min</div>
+      <div class="mini-card">
+        <div class="mini-card-label">Minutos extras</div>
+        <div class="mini-card-val">${d.saldo_mins}min</div>
       </div>
     </div>
 
-    <div class="section-title">Últimas movimentações</div>
-    <div class="historico-list">${histHTML}</div>
+    <div class="section-head">Últimas movimentações</div>
+    <div class="hist-list">${histHTML}</div>
 
-    <button class="btn-refresh" onclick="carregarSaldo()">
-      ↻&nbsp; Atualizar saldo
-    </button>
+    <button class="btn-atualizar" onclick="carregarSaldo('${token}','${nome}')">↻ Atualizar saldo</button>
   `;
 }
 
-// ────────────────────────────────────────────────────────
-// LOGOUT
-// ────────────────────────────────────────────────────────
-async function logout() {
-  if (_token) {
-    try {
-      await fetch("/api/logout", {
-        method: "POST",
-        headers: { "X-Token": _token },
-      });
-    } catch (_) {}
+// ═══════════════════════════════════════════════════════
+// PAINEL DO PROPRIETÁRIO
+// ═══════════════════════════════════════════════════════
+function abrirOwnerPanel() {
+  showScreen("owner-screen");
+  carregarResumoOwner();
+}
+
+async function carregarResumoOwner() {
+  const content = document.getElementById("owner-content");
+  content.innerHTML = '<div class="spinner"></div>';
+
+  try {
+    const res  = await fetch("/api/funcionarios");
+    const lista = await res.json();
+    renderOwner(lista);
+  } catch (err) {
+    content.innerHTML = `
+      <div class="empty">Sem conexão com o servidor.</div>
+      <button class="btn-atualizar" onclick="carregarResumoOwner()">↻ Tentar novamente</button>
+    `;
   }
-  _token = ""; _nome = "";
-  localStorage.removeItem("bh_token");
-  localStorage.removeItem("bh_nome");
-  _pin = "";
-  updateDots();
-  hideErro();
-  showScreen("login-screen");
 }
 
-document.getElementById("btn-logout").addEventListener("click", logout);
+function renderOwner(lista) {
+  const content = document.getElementById("owner-content");
 
-// ────────────────────────────────────────────────────────
-// AUTO-LOGIN se já tem token salvo
-// ────────────────────────────────────────────────────────
-if (_token && _nome) {
-  document.getElementById("tb-nome").textContent = _nome;
-  showScreen("main-screen");
-  carregarSaldo();
+  // Total de horas devidas (saldo positivo = empresa deve ao funcionário)
+  const totalMin = lista.reduce((acc, f) => acc + 0, 0);
+  // Busca pelo maior devedor
+  const comSaldo = lista.filter(f => {
+    const n = parseInt(f.saldo.replace("+","").replace("-","").replace(":",""));
+    return f.positivo;
+  });
+
+  // Monta cards
+  const cards = lista.map((f, i) => {
+    const cls = f.positivo ? "pos" : "neg";
+    const saldoLbl = f.positivo ? "A empresa deve" : "Funcionário deve";
+    return `
+      <div class="owner-func-card" style="animation-delay:${i*0.07}s">
+        <div class="owner-func-head">
+          <div class="owner-func-av">${f.nome[0].toUpperCase()}</div>
+          <div>
+            <div class="owner-func-name">${f.nome}</div>
+            <div class="owner-func-role">Funcionário</div>
+          </div>
+        </div>
+        <div class="owner-func-saldo">
+          <div class="owner-saldo-lbl">${saldoLbl}</div>
+          <div class="owner-saldo-val ${cls}">${f.saldo}</div>
+        </div>
+      </div>`;
+  }).join("");
+
+  const posCount = lista.filter(f => f.positivo).length;
+
+  content.innerHTML = `
+    <div class="owner-total">
+      <div class="owner-total-label">Resumo geral</div>
+      <div class="owner-total-val">${lista.length} funcionários</div>
+      <div class="owner-total-desc">${posCount} com saldo positivo · ${lista.length - posCount} sem saldo acumulado</div>
+    </div>
+
+    <div class="section-head">Saldo por funcionário</div>
+    ${cards}
+
+    <button class="btn-atualizar" onclick="carregarResumoOwner()">↻ Atualizar</button>
+  `;
 }
 
-// ────────────────────────────────────────────────────────
-// SERVICE WORKER (PWA offline)
-// ────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("/sw.js").catch(() => {});
 }
