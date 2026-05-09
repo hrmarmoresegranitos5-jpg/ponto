@@ -2057,7 +2057,27 @@
     </div>
   </div>
 
-  <!-- ══ DASHBOARD — TELA RESUMO ══════════════════════════════ -->\n  <div id="saldo" class="screen">\n    <!-- Header premium com avatar, saudação, cargo -->\n    <div class="dash-header">\n      <div class="dash-avatar-wrap" id="saldo-avatar">\n        <div class="dash-avatar" id="dash-avatar-letter">—</div>\n        <div class="dash-avatar-dot"></div>\n      </div>\n      <div class="dash-header-info">\n        <div class="dash-greeting" id="dash-greeting">Bem-vindo</div>\n        <div class="dash-name" id="saldo-nome">—</div>\n        <div class="dash-cargo" id="dash-cargo">HR Mármores · Banco de Horas</div>\n      </div>\n      <div class="dash-notif-btn" id="btn-notif" onclick="abrirNotificacoes()">🔔<div class="dash-notif-count" id="notif-count"></div></div>\n      <div class="dash-refresh-btn" id="btn-refresh" onclick="refreshSaldo()">↻</div>\n    </div>\n    <!-- Corpo do dashboard -->\n    <div class="dash-body" id="saldo-body">\n      <div class="spinner"></div>\n    </div>\n  </div>
+  <!-- ══ DASHBOARD — TELA RESUMO ══════════════════════════════ -->
+  <div id="saldo" class="screen">
+    <!-- Header premium com avatar, saudação, cargo -->
+    <div class="dash-header">
+      <div class="dash-avatar-wrap" id="saldo-avatar">
+        <div class="dash-avatar" id="dash-avatar-letter">—</div>
+        <div class="dash-avatar-dot"></div>
+      </div>
+      <div class="dash-header-info">
+        <div class="dash-greeting" id="dash-greeting">Bem-vindo</div>
+        <div class="dash-name" id="saldo-nome">—</div>
+        <div class="dash-cargo" id="dash-cargo">HR Mármores · Banco de Horas</div>
+      </div>
+      <div class="dash-notif-btn" id="btn-notif" onclick="abrirNotificacoes()">🔔<div class="dash-notif-count" id="notif-count"></div></div>
+      <div class="dash-refresh-btn" id="btn-refresh" onclick="refreshSaldo()">↻</div>
+    </div>
+    <!-- Corpo do dashboard -->
+    <div class="dash-body" id="saldo-body">
+      <div class="spinner"></div>
+    </div>
+  </div>
 
   <!-- ══ TELA HISTÓRICO ════════════════════════════════════════ -->
   <div id="historico">
@@ -2355,15 +2375,23 @@ async function carregarSaldo() {
         <div class="offline-card">
           <div class="offline-icon">🔍</div>
           <div class="offline-title">Funcionário não encontrado</div>
-          <div class="offline-desc">O nome "${_nomeAtual}" não foi localizado no sistema. Fale com o responsável.</div>
+          <div class="offline-desc">O nome "${_nomeAtual}" não foi cadastrado no sistema ainda. Peça ao responsável para cadastrá-lo no programa do PC.</div>
+        </div>
+      `;
+    } else if (!API_BASE) {
+      body.innerHTML = `
+        <div class="offline-card">
+          <div class="offline-icon">⚙️</div>
+          <div class="offline-title">Servidor não configurado</div>
+          <div class="offline-desc">O administrador precisa configurar a URL do servidor no programa do PC (menu Configurações → URL do Servidor) e sincronizar os dados.</div>
         </div>
       `;
     } else {
       body.innerHTML = `
         <div class="offline-card">
           <div class="offline-icon">📡</div>
-          <div class="offline-title">Sem conexão</div>
-          <div class="offline-desc">Não foi possível carregar o saldo. Verifique sua internet.</div>
+          <div class="offline-title">Sem conexão com o servidor</div>
+          <div class="offline-desc">Não foi possível carregar o saldo. Verifique se o servidor está online e sua internet está funcionando.</div>
         </div>
         <button class="btn-retry" onclick="carregarSaldo()">↻ Tentar novamente</button>
       `;
@@ -2797,6 +2825,15 @@ function renderFinanceiro() {
   const d = _ultimoSaldo;
 
   if (!d) {
+    if (!API_BASE) {
+      scroll.innerHTML = `
+        <div class="fin-no-salary">
+          <div class="fin-no-salary-icon">⚙️</div>
+          <div class="fin-no-salary-title">Servidor não configurado</div>
+          <div class="fin-no-salary-desc">Para ver os dados financeiros, o administrador precisa configurar a URL do servidor no programa do PC.</div>
+        </div>`;
+      return;
+    }
     scroll.innerHTML = '<div class="spinner"></div>';
     carregarSaldo().then(() => renderFinanceiro());
     return;
@@ -2904,13 +2941,18 @@ async function carregarRegistros() {
   const el = document.getElementById('registros-body');
   if (!el) return;
 
+  if (!API_BASE) {
+    el.innerHTML = '<div class="hist-empty">⚙️ Servidor não configurado. O administrador precisa definir a URL do servidor no programa do PC.</div>';
+    return;
+  }
+
   try {
     const res = await fetch(API_BASE + '/api/registros-por-nome/' + encodeURIComponent(_nomeAtual));
     if (!res.ok) throw new Error('err');
     const lista = await res.json();
     renderRegistros(lista);
   } catch(e) {
-    if (el) el.innerHTML = '<div class="hist-empty">Sem registros disponíveis.</div>';
+    if (el) el.innerHTML = '<div class="hist-empty">📡 Não foi possível carregar o histórico. Verifique se o servidor está online.</div>';
   }
 }
 
