@@ -19,6 +19,19 @@ import sqlite3, os, re
 from datetime import datetime, timedelta
 from collections import defaultdict
 
+# ── Sincronização com a nuvem — bibliotecas opcionais ────────────────────────
+try:
+    import requests as _requests
+    _REQUESTS_OK = True
+except ImportError:
+    _REQUESTS_OK = False
+
+try:
+    import configparser as _configparser
+    _CONFIGPARSER_OK = True
+except ImportError:
+    _CONFIGPARSER_OK = False
+
 # ── Módulo de relatórios (Etapa 5) — importação opcional ─────────────────────
 try:
     from relatorios_pdf import (gerar_pdf_calculo, gerar_pdf_banco_horas,
@@ -33,6 +46,92 @@ except ImportError:
 APP_TITLE   = "Sistema de Ponto"
 APP_VERSION = "v5.0"
 DB_FILE     = "ponto.db"
+CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ponto_config.ini")
+
+
+# ── Leitura/gravação da configuração de nuvem ────────────────────────────────
+def _cfg_load() -> dict:
+    """Lê SERVIDOR_URL e ADMIN_KEY do ponto_config.ini (ou variáveis de ambiente)."""
+    cfg = {"servidor_url": "", "admin_key": ""}
+    if _CONFIGPARSER_OK and os.path.exists(CONFIG_FILE):
+        p = _configparser.ConfigParser()
+        p.read(CONFIG_FILE, encoding="utf-8")
+        sec = p["nuvem"] if "nuvem" in p else {}
+        cfg["servidor_url"] = sec.get("servidor_url", "").strip()
+        cfg["admin_key"]    = sec.get("admin_key",    "").strip()
+    # Variáveis de ambiente têm prioridade
+    cfg["servidor_url"] = os.environ.get("SERVIDOR_URL", cfg["servidor_url"]).strip()
+    cfg["admin_key"]    = os.environ.get("ADMIN_KEY",    cfg["admin_key"]   ).strip()
+    return cfg
+
+
+def _cfg_save(servidor_url: str, admin_key: str):
+    """Salva as configurações de nuvem no ponto_config.ini."""
+    if not _CONFIGPARSER_OK:
+        return
+    p = _configparser.ConfigParser()
+    if os.path.exists(CONFIG_FILE):
+        p.read(CONFIG_FILE, encoding="utf-8")
+    if "nuvem" not in p:
+        p["nuvem"] = {}
+    p["nuvem"]["servidor_url"] = servidor_url.strip()
+    p["nuvem"]["admin_key"]    = admin_key.strip()
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        p.write(f)
+
+
+# ── Sincronização ─────────────────────────────────────────────────────────────
+def sincronizar_nuvem(db) -> tuple:
+    """
+    Envia saldo + últimos movimentos de todos os funcionários para o servidor.
+    Retorna (True, mensagem) em sucesso ou (False, erro) em falha.
+    """
+    if not _REQUESTS_OK:
+        return False, "Biblioteca 'requests' não instalada.\nExecute:  pip install requests"
+
+    cfg = _cfg_load()
+    url = cfg["servidor_url"]
+    key = cfg["admin_key"]
+
+    if not url:
+        return False, (
+            "URL do servidor não configurada.\n"
+            "Vá em Configurações → Nuvem e informe a URL do Railway."
+        )
+
+    payload = {"funcionarios": []}
+    for func in db.get_funcionarios(apenas_ativos=False):
+        fid       = func["id"]
+        saldo, movs = db.get_banco_horas_func(fid)
+        payload["funcionarios"].append({
+            "nome":       func["nome"],
+            "pin":        func["pin"] if "pin" in func.keys() else None,
+            "saldo_min":  saldo,
+            "movimentos": [
+                {
+                    "tipo":       m["tipo"],
+                    "minutos":    m["minutos"],
+                    "descricao":  m["descricao"] or "",
+                    "referencia": m["referencia"] or "",
+                    "criado_em":  m["criado_em"],
+                }
+                for m in movs
+            ],
+        })
+
+    endpoint = url.rstrip("/") + "/api/admin/sincronizar"
+    headers  = {"Content-Type": "application/json"}
+    if key:
+        headers["X-Admin-Key"] = key
+
+    try:
+        resp = _requests.post(endpoint, json=payload, headers=headers, timeout=15)
+        if resp.status_code == 200:
+            data = resp.json()
+            return True, f"✔ Sincronizado! {data.get('atualizados', '?')} funcionário(s) atualizados."
+        return False, f"Erro {resp.status_code}: {resp.text[:300]}"
+    except Exception as e:
+        return False, f"Falha na conexão:\n{e}"
 
 C = {
     "bg_dark":    "#0D0F14",  "bg_panel":   "#13161E",
@@ -250,11 +349,299 @@ def _norm_time(raw):
     p = raw.strip().split(":")
     return f"{int(p[0]):02d}:{int(p[1]):02d}" if len(p) >= 2 else raw.strip()
 
-class PontoParser:
+
+# ──────────────────────────────────────────────────────────────────────────────
+# PARSER ESPECÍFICO PARA O RELÓGIO DE PONTO
+# Suporta os três formatos exportados pelo relógio:
+#   1. RegistroPresença.xls  — tabela mensal com dias como colunas
+#   2. RelatórioAnormal.xls  — uma linha por funcionário/dia (entrada/saída)
+#   3. RelatórioPresença.xls — cartão de ponto detalhado, múltiplos funcs por aba
+# ──────────────────────────────────────────────────────────────────────────────
+def _rt(v):
+    """Converte datetime.time ou string 'HH:MM' para 'HH:MM'. Retorna None se inválido."""
+    if v is None or str(v).strip().lower() in ('nenhum', 'none', '', 'nan'): return None
+    try:
+        import datetime as _dt
+        if isinstance(v, _dt.time):
+            return f"{v.hour:02d}:{v.minute:02d}"
+    except Exception: pass
+    s = str(v).strip()
+    m = re.match(r'(\d{1,2}):(\d{2})', s)
+    if m: return f"{int(m.group(1)):02d}:{int(m.group(2)):02d}"
+    return None
+
+def _rd(v, ano_ref=None):
+    """Converte datetime ou '01 4ª' para 'YYYY-MM-DD'."""
+    try:
+        import datetime as _dt
+        if isinstance(v, (_dt.datetime, _dt.date)):
+            return v.strftime("%Y-%m-%d")
+    except Exception: pass
+    if ano_ref:
+        m = re.match(r'(\d{1,2})\s+\S', str(v).strip())
+        if m:
+            try:
+                from datetime import date as _date
+                return _date(ano_ref[0], ano_ref[1], int(m.group(1))).strftime("%Y-%m-%d")
+            except Exception: pass
+    return None
+
+def _periodo(texto):
+    """Extrai (ano, mes) de texto como '01/04/2026~25/04/2026'."""
+    m = re.search(r'(\d{2})/(\d{2})/(\d{4})', str(texto))
+    if m: return int(m.group(3)), int(m.group(2))
+    return None
+
+
+class RelogioPontoParser:
+    """
+    Parser dedicado aos arquivos exportados pelo relógio de ponto.
+    Detecta automaticamente o formato pelo nome/conteúdo da aba.
+    """
+
     def parse(self, filepath):
         ext = os.path.splitext(filepath)[1].lower()
+        if ext == ".xls":
+            filepath = self._xls_para_xlsx(filepath)
+            if not filepath:
+                return [], ["Não foi possível converter o arquivo .xls.\n"
+                            "Certifique-se de que o LibreOffice está instalado."]
         try:
-            rows = self._read_excel(filepath) if ext in (".xlsx",".xls") else self._read_text(filepath)
+            from openpyxl import load_workbook as _lwb
+            wb = _lwb(filepath, read_only=True, data_only=True)
+        except Exception as e:
+            return [], [f"Erro ao abrir arquivo: {e}"]
+
+        for sheet in wb.sheetnames:
+            nome_aba = sheet.lower()
+            if any(x in nome_aba for x in ('registro', 'registro de pres')):
+                return self._parse_registro(wb[sheet])
+            if 'anormal' in nome_aba:
+                return self._parse_anormal(wb[sheet])
+            if any(x in nome_aba for x in ('cartão', 'cart', '1,2', '4,5', 'presença de func')):
+                return self._parse_cartao(wb[sheet])
+
+        # Detecção por conteúdo
+        for sheet in wb.sheetnames:
+            rows_top = list(wb[sheet].iter_rows(values_only=True, max_row=8))
+            flat = ' '.join(str(c) for r in rows_top for c in r if c).lower()
+            if 'anormal' in flat:
+                return self._parse_anormal(wb[sheet])
+            if 'cartão de ponto' in flat or 'cartao de ponto' in flat:
+                return self._parse_cartao(wb[sheet])
+            if 'idusuário' in flat or 'idusuario' in flat:
+                return self._parse_registro(wb[sheet])
+
+        return [], ["Formato não reconhecido. Use RegistroPresença, RelatórioAnormal ou RelatórioPresença."]
+
+    def _xls_para_xlsx(self, fp):
+        """Converte .xls → .xlsx via LibreOffice."""
+        import subprocess, tempfile
+        out = tempfile.mkdtemp()
+        try:
+            script = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                  '..', 'skills', 'public', 'pptx', 'scripts', 'office', 'soffice.py')
+            # Tenta o script do skill
+            if not os.path.exists(script):
+                script = '/mnt/skills/public/pptx/scripts/office/soffice.py'
+            r = subprocess.run(
+                ['python3', script, '--convert-to', 'xlsx', '--outdir', out, fp],
+                capture_output=True, text=True, timeout=40)
+            base = os.path.splitext(os.path.basename(fp))[0]
+            out_file = os.path.join(out, base + '.xlsx')
+            if os.path.exists(out_file): return out_file
+        except Exception:
+            pass
+        # Fallback: tenta soffice diretamente
+        try:
+            subprocess.run(
+                ['soffice', '--headless', '--convert-to', 'xlsx', '--outdir', out, fp],
+                capture_output=True, timeout=40)
+            base = os.path.splitext(os.path.basename(fp))[0]
+            out_file = os.path.join(out, base + '.xlsx')
+            if os.path.exists(out_file): return out_file
+        except Exception:
+            pass
+        return None
+
+    # ── Formato 1: RegistroPresença ──────────────────────────────────────────
+    # Cabeçalho a cada bloco de 3 linhas:
+    #   L1: IDUsuário: X | Nome: fulano | Dep.: marmoraria
+    #   L2: 1  2  3 ... 25  (números dos dias)
+    #   L3: batidas de cada dia separadas por \n dentro da célula
+    def _parse_registro(self, ws):
+        rows = list(ws.iter_rows(values_only=True))
+        resultado, avisos = [], []
+        periodo = None
+        for row in rows[:6]:
+            for c in row:
+                if c and 'Data de presen' in str(c):
+                    periodo = _periodo(str(c)); break
+
+        i = 0
+        while i < len(rows):
+            row = rows[i]
+            flat = ' '.join(str(c).lower() for c in row if c)
+            if 'idusuário:' in flat or 'idusuario:' in flat:
+                # Extrai nome
+                nome = None
+                for j, c in enumerate(row):
+                    if c and 'nome' in str(c).lower() and j + 1 < len(row) and rows[i][j+1]:
+                        nome = str(rows[i][j+1]).strip().lower(); break
+                if nome and i + 2 < len(rows):
+                    dias_row = rows[i + 1]
+                    bat_row  = rows[i + 2]
+                    for ci, dia_num in enumerate(dias_row):
+                        if dia_num is None: continue
+                        s = str(dia_num).strip()
+                        if not s.isdigit(): continue
+                        dia = int(s)
+                        celula = bat_row[ci] if ci < len(bat_row) else None
+                        if celula is None: continue
+                        horarios = []
+                        for h in str(celula).split('\n'):
+                            t = _rt(h.strip())
+                            if t: horarios.append(t)
+                        if horarios and periodo:
+                            try:
+                                from datetime import date as _date
+                                ds = _date(periodo[0], periodo[1], dia).strftime("%Y-%m-%d")
+                                resultado.append({"funcionario_raw": nome, "data": ds,
+                                    "horarios": sorted(horarios), "qtd_batidas": len(horarios), "erros": []})
+                            except Exception: pass
+                i += 3
+            else:
+                i += 1
+        if not resultado:
+            avisos.append("RegistroPresença: nenhuma batida encontrada.")
+        return resultado, avisos
+
+    # ── Formato 2: RelatórioAnormal ──────────────────────────────────────────
+    # Colunas: IDUsuário | Nome | Dep. | Data | E.manhã | S.manhã | E.tarde | S.tarde | …
+    def _parse_anormal(self, ws):
+        rows = list(ws.iter_rows(values_only=True))
+        resultado, avisos = [], []
+        # Acha linha de cabeçalho
+        hdr = None
+        for i, row in enumerate(rows):
+            flat = [str(c).lower() if c else '' for c in row]
+            if any('idusuário' in x or 'idusuario' in x for x in flat):
+                hdr = i; break
+        if hdr is None:
+            return [], ["RelatórioAnormal: cabeçalho não encontrado."]
+        for row in rows[hdr + 2:]:
+            if not row or row[0] is None: continue
+            try:
+                id_usr = row[0]
+                nome   = str(row[1]).strip().lower() if row[1] else None
+                data_v = row[3]
+                em = _rt(row[4]) if len(row) > 4 else None
+                sm = _rt(row[5]) if len(row) > 5 else None
+                et = _rt(row[6]) if len(row) > 6 else None
+                st = _rt(row[7]) if len(row) > 7 else None
+                if not nome or not isinstance(id_usr, (int, float)): continue
+                from datetime import datetime as _dt
+                if not isinstance(data_v, _dt): continue
+                ds = data_v.strftime("%Y-%m-%d")
+                horarios = [h for h in [em, sm, et, st] if h]
+                if horarios:
+                    resultado.append({"funcionario_raw": nome, "data": ds,
+                        "horarios": sorted(horarios), "qtd_batidas": len(horarios), "erros": []})
+            except Exception as e:
+                avisos.append(f"Linha ignorada: {e}")
+        if not resultado:
+            avisos.append("RelatórioAnormal: nenhuma batida com horário encontrada.")
+        return resultado, avisos
+
+    # ── Formato 3: RelatórioPresença (cartão de ponto) ───────────────────────
+    # Vários funcionários lado a lado em blocos de ~15 colunas.
+    # Cabeçalho: 'Dep.' | dep | … | 'Nome' | nome_func
+    # Dados: '01 4ª' | E.manhã | – | S.manhã | – | – | E.tarde | – | S.tarde | E.ext | – | S.ext
+    def _parse_cartao(self, ws):
+        rows = list(ws.iter_rows(values_only=True))
+        resultado, avisos = [], []
+        periodo = None
+        for row in rows[:6]:
+            for c in row:
+                if c and '~' in str(c):
+                    periodo = _periodo(str(c)); break
+
+        # Mapa col_bloco → nome do funcionário
+        func_map = {}
+        nome_row_idx = None
+        for i, row in enumerate(rows[:15]):
+            for ci, c in enumerate(row):
+                if c and str(c).strip() == 'Nome':
+                    if ci + 1 < len(row) and row[ci + 1]:
+                        nome = str(row[ci + 1]).strip().lower()
+                        bloco = (ci // 15) * 15
+                        func_map[bloco] = nome
+                        nome_row_idx = i
+            if nome_row_idx and i > nome_row_idx + 1: break
+
+        if not func_map:
+            return [], ["RelatórioPresença: funcionários não identificados."]
+
+        # Acha linha de início dos dados (após 'Cartão de ponto' + 2 sub-cabeçalhos)
+        data_start = None
+        for i, row in enumerate(rows):
+            flat = [str(c) for c in row if c]
+            if any('Cartão de ponto' in x or 'Cartao de ponto' in x for x in flat):
+                data_start = i + 3; break
+        if data_start is None:
+            # Fallback: primeira linha com padrão '01 4ª'
+            for i, row in enumerate(rows):
+                if any(c and re.match(r'^\d{2}\s+\S', str(c)) for c in row):
+                    data_start = i; break
+        if data_start is None:
+            return [], ["RelatórioPresença: dados não encontrados."]
+
+        # Offsets das colunas de horário dentro de cada bloco de 15 cols
+        HORA_OFFSETS = [1, 3, 6, 8, 10, 12]
+        for row in rows[data_start:]:
+            if not row or all(c is None for c in row): continue
+            for bloco, nome in func_map.items():
+                if bloco >= len(row): continue
+                data_v = row[bloco]
+                if data_v is None: continue
+                ds = _rd(data_v, periodo)
+                if not ds: continue
+                horarios = []
+                for off in HORA_OFFSETS:
+                    ci = bloco + off
+                    if ci < len(row):
+                        t = _rt(row[ci])
+                        if t: horarios.append(t)
+                if horarios:
+                    resultado.append({"funcionario_raw": nome, "data": ds,
+                        "horarios": sorted(horarios), "qtd_batidas": len(horarios), "erros": []})
+
+        if not resultado:
+            avisos.append("RelatórioPresença: nenhuma batida encontrada.")
+        return resultado, avisos
+
+
+class PontoParser:
+    """
+    Parser principal: tenta primeiro o RelogioPontoParser (formato do relógio).
+    Se não reconhecer, usa o parser genérico para CSV/TXT.
+    """
+    def __init__(self):
+        self._relogio = RelogioPontoParser()
+
+    def parse(self, filepath):
+        ext = os.path.splitext(filepath)[1].lower()
+        # Arquivos Excel → sempre tenta o parser do relógio primeiro
+        if ext in (".xls", ".xlsx"):
+            regs, avisos = self._relogio.parse(filepath)
+            if regs:
+                return regs, avisos
+            # Se não encontrou nada, avisa
+            return regs, avisos or ["Arquivo Excel não reconhecido. "
+                                     "Use RegistroPresença, RelatórioAnormal ou RelatórioPresença."]
+        # CSV/TXT → parser genérico
+        try:
+            rows = self._read_text(filepath)
         except Exception as e:
             return [], [f"Erro ao abrir: {e}"]
         return self._parse_rows(rows)
@@ -265,26 +652,6 @@ class PontoParser:
                 with open(fp, encoding=enc, errors="replace") as f: return f.readlines()
             except: continue
         return []
-
-    def _read_excel(self, fp):
-        ext = os.path.splitext(fp)[1].lower()
-        rows = []
-        try:
-            if ext == ".xlsx":
-                import openpyxl
-                wb = openpyxl.load_workbook(fp, data_only=True)
-                for row in wb.active.iter_rows():
-                    p = [str(c.value).strip() for c in row if c.value is not None]
-                    if p: rows.append("  ".join(p))
-            else:
-                import xlrd
-                wb = xlrd.open_workbook(fp); ws = wb.sheet_by_index(0)
-                for r in range(ws.nrows):
-                    p = [str(ws.cell_value(r,c)).strip() for c in range(ws.ncols) if str(ws.cell_value(r,c)).strip()]
-                    if p: rows.append("  ".join(p))
-        except ImportError as e:
-            raise ImportError(f"{e}\nExecute: pip install openpyxl xlrd")
-        return rows
 
     def _parse_rows(self, lines):
         avisos = []; bucket = defaultdict(lambda: {"horarios": set(), "erros": []})
@@ -401,10 +768,11 @@ class Database:
         except Exception:
             pass
         for nome, sal, tipo, jorn, obs, pin in [
-            ("Fabricio", 400.0,  "semana", 8.0, "Pagamento semanal",       "1234"),
-            ("Gibs",     1000.0, "mes",    8.0, "Pagamento mensal",        "2345"),
-            ("Hugo",     1900.0, "mes",    8.0, "Pagamento mensal",        "3456"),
-            ("Tiago",    400.0,  "mes",    4.0, "Meio periodo - 4h/dia",   "4567"),
+            ("hangel",   1500.0, "mes",    8.0, "Pagamento mensal",        "1111"),
+            ("fabricio", 400.0,  "semana", 8.0, "Pagamento semanal",       "1234"),
+            ("gibs",     1000.0, "mes",    8.0, "Pagamento mensal",        "2345"),
+            ("hugo",     1900.0, "mes",    8.0, "Pagamento mensal",        "3456"),
+            ("tiago",    400.0,  "mes",    4.0, "Meio periodo - 4h/dia",   "4567"),
         ]:
             self.conn.execute(
                 "INSERT OR IGNORE INTO funcionarios(nome,salario,tipo_pag,jornada_h,observacoes,criado_em,pin) VALUES(?,?,?,?,?,?,?)",
@@ -485,6 +853,13 @@ class Database:
                 referencia=str(imp_id)
             )
 
+        # ── Sincronização automática com a nuvem ──────────────────────────
+        try:
+            ok, msg = sincronizar_nuvem(self)
+            self._ultimo_sync = (ok, msg)
+        except Exception:
+            self._ultimo_sync = (False, "Erro ao sincronizar.")
+
         return imp_id
 
     def _match(self, raw, funcs):
@@ -559,6 +934,12 @@ class Database:
             "INSERT INTO banco_horas_mov(funcionario_id,tipo,minutos,descricao,referencia,criado_em) VALUES(?,?,?,?,?,?)",
             (func_id, "debito", minutos, descricao, "", now))
         self.conn.commit()
+        # ── Sincroniza com a nuvem ─────────────────────────────────────────
+        try:
+            ok, msg = sincronizar_nuvem(self)
+            self._ultimo_sync = (ok, msg)
+        except Exception:
+            self._ultimo_sync = (False, "Erro ao sincronizar.")
 
     def get_pin_func(self, func_id):
         row = self.conn.execute("SELECT pin FROM funcionarios WHERE id=?", (func_id,)).fetchone()
@@ -620,8 +1001,8 @@ class Card(tk.Frame):
         tk.Frame(self, bg=color, height=3).pack(fill="x")
         inn = tk.Frame(self, bg=C["bg_card"], padx=20, pady=16); inn.pack(fill="both", expand=True)
         tk.Label(inn, text=title,      bg=C["bg_card"], fg=C["text_mid"], font=FONT_SMALL).pack(anchor="w")
-        tk.Label(inn, text=str(value), bg=C["bg_card"], fg=color, font=("Segoe UI",28,"bold")).pack(anchor="w", pady=(4,0))
-        if sub: tk.Label(inn, text=sub, bg=C["bg_card"], fg=C["text_lo"], font=FONT_SMALL).pack(anchor="w", pady=(2,0))
+        tk.Label(inn, text=str(value), bg=C["bg_card"], fg=color, font=("Segoe UI",28,"bold")).pack(anchor="w", pady=0)
+        if sub: tk.Label(inn, text=sub, bg=C["bg_card"], fg=C["text_lo"], font=FONT_SMALL).pack(anchor="w", pady=0)
 
 def _fd(d):
     try: return datetime.strptime(d, "%Y-%m-%d").strftime("%d/%m/%Y")
@@ -640,7 +1021,7 @@ class PageDashboard(tk.Frame):
         hdr = tk.Frame(self, bg=C["bg_panel"], pady=30, padx=36); hdr.pack(fill="x")
         tk.Label(hdr, text="Dashboard", bg=C["bg_panel"], fg=C["text_hi"], font=FONT_TITLE).pack(anchor="w")
         tk.Label(hdr, text=f"Visão geral  ·  {datetime.now().strftime('%d/%m/%Y')}",
-                 bg=C["bg_panel"], fg=C["text_mid"], font=FONT_BODY).pack(anchor="w", pady=(4,0))
+                 bg=C["bg_panel"], fg=C["text_mid"], font=FONT_BODY).pack(anchor="w", pady=0)
         Sep(self).pack(fill="x", padx=36)
 
         cf = tk.Frame(self, bg=C["bg_panel"], padx=36, pady=24); cf.pack(fill="x")
@@ -650,7 +1031,7 @@ class PageDashboard(tk.Frame):
             ("Importações",         i, "arquivos lidos",  C["success"]),
             ("Registros de Ponto",  r, "batidas no banco",C["warning"]),
         ]):
-            Card(cf, t, v, s, c).grid(row=0, column=idx, padx=(0,16), sticky="ew")
+            Card(cf, t, v, s, c).grid(row=0, column=idx, padx=16, sticky="ew")
             cf.columnconfigure(idx, weight=1)
 
         Sep(self).pack(fill="x", padx=36)
@@ -659,28 +1040,29 @@ class PageDashboard(tk.Frame):
 
         # Equipe
         lf = tk.Frame(info, bg=C["bg_card"], highlightbackground=C["border"], highlightthickness=1)
-        lf.grid(row=0, column=0, padx=(0,12), sticky="nsew")
+        lf.grid(row=0, column=0, padx=12, sticky="nsew")
         tk.Frame(lf, bg=C["accent"], height=3).pack(fill="x")
         li = tk.Frame(lf, bg=C["bg_card"], padx=20, pady=16); li.pack(fill="both", expand=True)
-        tk.Label(li, text="Equipe Cadastrada", bg=C["bg_card"], fg=C["text_hi"], font=FONT_HEADER).pack(anchor="w", pady=(0,12))
+        tk.Label(li, text="Equipe Cadastrada", bg=C["bg_card"], fg=C["text_hi"], font=FONT_HEADER).pack(anchor="w", pady=12)
         for nome, sal, jorn, color in [
-            ("Fabricio","R$ 400/semana","8h/dia", C["accent"]),
-            ("Gibs",    "R$ 1.000/mês", "8h/dia", C["success"]),
-            ("Hugo",    "R$ 1.900/mês", "8h/dia", C["warning"]),
-            ("Tiago",   "R$ 400/mês",   "4h/dia", C["purple"]),
+            ("Hangel",   "R$ 1.500/mês",  "8h/dia", C["accent"]),
+            ("Fabricio", "R$ 400/semana", "8h/dia", C["success"]),
+            ("Gibs",     "R$ 1.000/mês",  "8h/dia", C["warning"]),
+            ("Hugo",     "R$ 1.900/mês",  "8h/dia", C["purple"]),
+            ("Tiago",    "R$ 400/mês",    "4h/dia", C["text_mid"]),
         ]:
             rw = tk.Frame(li, bg=C["bg_card"], pady=6); rw.pack(fill="x")
-            tk.Label(rw, text="●",   bg=C["bg_card"], fg=color, font=("Segoe UI",8)).pack(side="left", padx=(0,8))
+            tk.Label(rw, text="●",   bg=C["bg_card"], fg=color, font=("Segoe UI",8)).pack(side="left", padx=8)
             tk.Label(rw, text=nome,  bg=C["bg_card"], fg=C["text_hi"], font=("Segoe UI",11,"bold"), width=10, anchor="w").pack(side="left")
             tk.Label(rw, text=sal,   bg=C["bg_card"], fg=C["text_mid"], font=FONT_SMALL, width=14, anchor="w").pack(side="left")
             tk.Label(rw, text=jorn,  bg=C["bg_card"], fg=color, font=FONT_SMALL).pack(side="right")
 
         # Status
         rf = tk.Frame(info, bg=C["bg_card"], highlightbackground=C["border"], highlightthickness=1)
-        rf.grid(row=0, column=1, padx=(12,0), sticky="nsew")
+        rf.grid(row=0, column=1, padx=0, sticky="nsew")
         tk.Frame(rf, bg=C["success"], height=3).pack(fill="x")
         ri = tk.Frame(rf, bg=C["bg_card"], padx=20, pady=16); ri.pack(fill="both", expand=True)
-        tk.Label(ri, text="Status do Sistema", bg=C["bg_card"], fg=C["text_hi"], font=FONT_HEADER).pack(anchor="w", pady=(0,12))
+        tk.Label(ri, text="Status do Sistema", bg=C["bg_card"], fg=C["text_hi"], font=FONT_HEADER).pack(anchor="w", pady=12)
         for sym, lbl, val, color in [
             ("✓","Banco de dados",      "Conectado",   C["success"]),
             ("✓","Cadastro de pessoal", "Operacional", C["success"]),
@@ -707,7 +1089,7 @@ class PageFuncionarios(tk.Frame):
         hdr = tk.Frame(self, bg=C["bg_panel"], padx=36, pady=30); hdr.pack(fill="x")
         lh  = tk.Frame(hdr, bg=C["bg_panel"]); lh.pack(side="left", fill="x", expand=True)
         tk.Label(lh, text="Funcionários",         bg=C["bg_panel"], fg=C["text_hi"], font=FONT_TITLE).pack(anchor="w")
-        tk.Label(lh, text="Cadastro e gestão de pessoal", bg=C["bg_panel"], fg=C["text_mid"], font=FONT_BODY).pack(anchor="w", pady=(4,0))
+        tk.Label(lh, text="Cadastro e gestão de pessoal", bg=C["bg_panel"], fg=C["text_mid"], font=FONT_BODY).pack(anchor="w", pady=0)
         Btn(hdr, "Novo Funcionário", self._form, icon="+").pack(side="right", pady=4)
         Sep(self).pack(fill="x", padx=36)
 
@@ -725,8 +1107,8 @@ class PageFuncionarios(tk.Frame):
         self._load()
 
         br = tk.Frame(self, bg=C["bg_panel"], padx=36, pady=16); br.pack(fill="x")
-        Btn(br, "Editar",          self._edit,   style="outline", icon="✎").pack(side="left", padx=(0,10))
-        Btn(br, "Ativar/Desativar",self._toggle, style="outline", icon="⏼").pack(side="left", padx=(0,10))
+        Btn(br, "Editar",          self._edit,   style="outline", icon="✎").pack(side="left", padx=10)
+        Btn(br, "Ativar/Desativar",self._toggle, style="outline", icon="⏼").pack(side="left", padx=10)
         Btn(br, "Excluir",         self._delete, style="danger",  icon="✕").pack(side="left")
 
     def _load(self):
@@ -775,9 +1157,9 @@ class FormFuncionario(tk.Toplevel):
         tk.Frame(self, bg=C["accent"], height=4).pack(fill="x")
         c = tk.Frame(self, bg=C["bg_card"], padx=32, pady=24); c.pack(fill="both", expand=True)
         tk.Label(c, text="Editar Funcionário" if self.fid else "Novo Funcionário",
-                 bg=C["bg_card"], fg=C["text_hi"], font=FONT_HEADER).pack(anchor="w", pady=(0,16))
+                 bg=C["bg_card"], fg=C["text_hi"], font=FONT_HEADER).pack(anchor="w", pady=16)
         def fld(lbl):
-            tk.Label(c, text=lbl, bg=C["bg_card"], fg=C["text_mid"], font=FONT_SMALL).pack(anchor="w", pady=(10,2))
+            tk.Label(c, text=lbl, bg=C["bg_card"], fg=C["text_mid"], font=FONT_SMALL).pack(anchor="w", pady=2)
         fld("NOME COMPLETO"); self.vn = tk.StringVar()
         tk.Entry(c, textvariable=self.vn, bg=C["bg_input"], fg=C["text_hi"], insertbackground=C["accent"], font=FONT_BODY, relief="flat").pack(fill="x", ipady=10)
         tk.Frame(c, bg=C["border"], height=1).pack(fill="x")
@@ -785,18 +1167,18 @@ class FormFuncionario(tk.Toplevel):
         tk.Entry(c, textvariable=self.vs, bg=C["bg_input"], fg=C["text_hi"], insertbackground=C["accent"], font=FONT_BODY, relief="flat").pack(fill="x", ipady=10)
         tk.Frame(c, bg=C["border"], height=1).pack(fill="x")
         fld("TIPO DE PAGAMENTO"); self.vt = tk.StringVar(value="mes")
-        tf = tk.Frame(c, bg=C["bg_card"]); tf.pack(fill="x", pady=(4,0))
+        tf = tk.Frame(c, bg=C["bg_card"]); tf.pack(fill="x", pady=0)
         for val,lbl in [("mes","Mensal"),("semana","Semanal")]:
             tk.Radiobutton(tf, text=lbl, variable=self.vt, value=val, bg=C["bg_card"],
                 fg=C["text_hi"], selectcolor=C["bg_input"], activebackground=C["bg_card"],
-                activeforeground=C["accent"], font=FONT_BODY).pack(side="left", padx=(0,24))
+                activeforeground=C["accent"], font=FONT_BODY).pack(side="left", padx=24)
         fld("JORNADA DIÁRIA (HORAS)"); self.vj = tk.StringVar(value="8")
         tk.Entry(c, textvariable=self.vj, bg=C["bg_input"], fg=C["text_hi"], insertbackground=C["accent"], font=FONT_BODY, relief="flat").pack(fill="x", ipady=10)
         tk.Frame(c, bg=C["border"], height=1).pack(fill="x")
         fld("OBSERVAÇÕES"); self.vo = tk.StringVar()
         tk.Entry(c, textvariable=self.vo, bg=C["bg_input"], fg=C["text_hi"], insertbackground=C["accent"], font=FONT_BODY, relief="flat").pack(fill="x", ipady=10)
         tk.Frame(c, bg=C["border"], height=1).pack(fill="x")
-        br = tk.Frame(c, bg=C["bg_card"]); br.pack(fill="x", pady=(20,0))
+        br = tk.Frame(c, bg=C["bg_card"]); br.pack(fill="x", pady=0)
         Btn(br, "Cancelar", self.destroy, style="outline").pack(side="left")
         Btn(br, "Salvar",   self._save,   style="primary").pack(side="right")
 
@@ -836,22 +1218,22 @@ class PageImportacao(tk.Frame):
         lh  = tk.Frame(hdr, bg=C["bg_panel"]); lh.pack(side="left", fill="x", expand=True)
         tk.Label(lh, text="Importar Ponto",    bg=C["bg_panel"], fg=C["text_hi"], font=FONT_TITLE).pack(anchor="w")
         tk.Label(lh, text="Selecione o arquivo exportado pelo relógio",
-                 bg=C["bg_panel"], fg=C["text_mid"], font=FONT_BODY).pack(anchor="w", pady=(4,0))
+                 bg=C["bg_panel"], fg=C["text_mid"], font=FONT_BODY).pack(anchor="w", pady=0)
         Btn(hdr, "Selecionar Arquivo", self._pick, style="primary", icon="📂").pack(side="right", pady=4)
         Sep(self).pack(fill="x", padx=36)
 
         fb = tk.Frame(self, bg=C["bg_card"], highlightbackground=C["border"], highlightthickness=1)
-        fb.pack(fill="x", padx=36, pady=(20,0))
+        fb.pack(fill="x", padx=36, pady=0)
         fi = tk.Frame(fb, bg=C["bg_card"], padx=20, pady=14); fi.pack(fill="x")
         tk.Label(fi, text="Arquivo:", bg=C["bg_card"], fg=C["text_mid"], font=FONT_SMALL).pack(side="left")
         self.lbl_file = tk.Label(fi, text="nenhum selecionado", bg=C["bg_card"], fg=C["text_lo"], font=FONT_BODY)
-        self.lbl_file.pack(side="left", padx=(8,0))
+        self.lbl_file.pack(side="left", padx=0)
 
         self.aviso_frame = tk.Frame(self, bg=C["bg_panel"])
 
         pf = tk.Frame(self, bg=C["bg_panel"], padx=36, pady=16); pf.pack(fill="both", expand=True)
         tk.Label(pf, text="PRÉ-VISUALIZAÇÃO DOS DADOS LIDOS",
-                 bg=C["bg_panel"], fg=C["text_mid"], font=("Segoe UI",9,"bold")).pack(anchor="w", pady=(0,8))
+                 bg=C["bg_panel"], fg=C["text_mid"], font=("Segoe UI",9,"bold")).pack(anchor="w", pady=8)
         tw = tk.Frame(pf, bg=C["bg_panel"]); tw.pack(fill="both", expand=True)
         _tv_style()
         self.tree = ttk.Treeview(tw, columns=("func","data","qtd","horarios","status"),
@@ -891,7 +1273,7 @@ class PageImportacao(tk.Frame):
             self.tree.insert("","end", values=(reg["funcionario_raw"],_fd(reg["data"]),
                 qtd, "  |  ".join(reg["horarios"]), stat), tags=(tag,))
         if avisos:
-            self.aviso_frame.pack(fill="x", padx=36, pady=(8,0))
+            self.aviso_frame.pack(fill="x", padx=36, pady=0)
             for w in self.aviso_frame.winfo_children(): w.destroy()
             box = tk.Frame(self.aviso_frame, bg="#2A1A0A",
                            highlightbackground=C["warning"], highlightthickness=1); box.pack(fill="x")
@@ -932,29 +1314,29 @@ class PageRelatorios(tk.Frame):
         lh  = tk.Frame(hdr, bg=C["bg_panel"]); lh.pack(side="left", fill="x", expand=True)
         tk.Label(lh, text="Relatórios Importados", bg=C["bg_panel"], fg=C["text_hi"], font=FONT_TITLE).pack(anchor="w")
         tk.Label(lh, text="Registros do relógio organizados por funcionário e data",
-                 bg=C["bg_panel"], fg=C["text_mid"], font=FONT_BODY).pack(anchor="w", pady=(4,0))
+                 bg=C["bg_panel"], fg=C["text_mid"], font=FONT_BODY).pack(anchor="w", pady=0)
         Btn(hdr, "Excluir Importação", self._del_imp, style="danger", icon="✕").pack(side="right", pady=4)
         Sep(self).pack(fill="x", padx=36)
 
         flt = tk.Frame(self, bg=C["bg_card"], highlightbackground=C["border"], highlightthickness=1)
-        flt.pack(fill="x", padx=36, pady=(20,0))
+        flt.pack(fill="x", padx=36, pady=0)
         tk.Frame(flt, bg=C["accent"], height=2).pack(fill="x")
         fi = tk.Frame(flt, bg=C["bg_card"], padx=20, pady=12); fi.pack(fill="x")
         tk.Label(fi, text="Importação:", bg=C["bg_card"], fg=C["text_mid"], font=FONT_SMALL).pack(side="left")
         self.cb_imp = ttk.Combobox(fi, state="readonly", width=38, font=FONT_BODY)
-        self.cb_imp.pack(side="left", padx=(8,24))
+        self.cb_imp.pack(side="left", padx=24)
         self.cb_imp.bind("<<ComboboxSelected>>", self._on_imp)
         tk.Label(fi, text="Funcionário:", bg=C["bg_card"], fg=C["text_mid"], font=FONT_SMALL).pack(side="left")
         self.cb_func = ttk.Combobox(fi, state="readonly", width=20, font=FONT_BODY)
-        self.cb_func.pack(side="left", padx=(8,24))
+        self.cb_func.pack(side="left", padx=24)
         self.cb_func.bind("<<ComboboxSelected>>", self._on_func)
         Btn(fi, "Todos", self._todos, style="outline").pack(side="left")
 
         body = tk.Frame(self, bg=C["bg_panel"], padx=36, pady=16); body.pack(fill="both", expand=True)
         body.columnconfigure(0, weight=3); body.columnconfigure(1, weight=2)
 
-        lw = tk.Frame(body, bg=C["bg_panel"]); lw.grid(row=0, column=0, sticky="nsew", padx=(0,12))
-        tk.Label(lw, text="REGISTROS POR DIA", bg=C["bg_panel"], fg=C["text_mid"], font=("Segoe UI",9,"bold")).pack(anchor="w", pady=(0,6))
+        lw = tk.Frame(body, bg=C["bg_panel"]); lw.grid(row=0, column=0, sticky="nsew", padx=12)
+        tk.Label(lw, text="REGISTROS POR DIA", bg=C["bg_panel"], fg=C["text_mid"], font=("Segoe UI",9,"bold")).pack(anchor="w", pady=6)
         tw = tk.Frame(lw, bg=C["bg_panel"]); tw.pack(fill="both", expand=True)
         _tv_style()
         self.tree = ttk.Treeview(tw, columns=("func","data","qtd","horarios","status"),
@@ -972,7 +1354,7 @@ class PageRelatorios(tk.Frame):
         self.tree.bind("<<TreeviewSelect>>", self._on_sel)
 
         rw = tk.Frame(body, bg=C["bg_panel"]); rw.grid(row=0, column=1, sticky="nsew")
-        tk.Label(rw, text="DETALHE DO DIA", bg=C["bg_panel"], fg=C["text_mid"], font=("Segoe UI",9,"bold")).pack(anchor="w", pady=(0,6))
+        tk.Label(rw, text="DETALHE DO DIA", bg=C["bg_panel"], fg=C["text_mid"], font=("Segoe UI",9,"bold")).pack(anchor="w", pady=6)
         self.det_card = tk.Frame(rw, bg=C["bg_card"], highlightbackground=C["border"], highlightthickness=1)
         self.det_card.pack(fill="both", expand=True)
         tk.Frame(self.det_card, bg=C["accent"], height=3).pack(fill="x")
@@ -980,7 +1362,7 @@ class PageRelatorios(tk.Frame):
         self.det_inner.pack(fill="both", expand=True)
         self._det_vazio()
 
-        ft = tk.Frame(self, bg=C["bg_panel"], padx=36, pady=(0,16)); ft.pack(fill="x")
+        ft = tk.Frame(self, bg=C["bg_panel"], padx=36, pady=16); ft.pack(fill="x")
         self.lbl_tot = tk.Label(ft, text="", bg=C["bg_panel"], fg=C["text_mid"], font=FONT_SMALL)
         self.lbl_tot.pack(side="left")
 
@@ -1046,28 +1428,28 @@ class PageRelatorios(tk.Frame):
         hrs = [h.strip() for h in row["horarios"].split(",") if h.strip()]
         qtd = row["qtd_batidas"]
         tk.Label(self.det_inner, text=fn,       bg=C["bg_card"], fg=C["text_hi"], font=("Segoe UI",15,"bold")).pack(anchor="w")
-        tk.Label(self.det_inner, text=_fd(row["data"]), bg=C["bg_card"], fg=C["accent"], font=("Segoe UI",11)).pack(anchor="w", pady=(2,16))
-        Sep(self.det_inner).pack(fill="x", pady=(0,14))
+        tk.Label(self.det_inner, text=_fd(row["data"]), bg=C["bg_card"], fg=C["accent"], font=("Segoe UI",11)).pack(anchor="w", pady=16)
+        Sep(self.det_inner).pack(fill="x", pady=14)
         LABELS = ["Entrada","Saída almoço","Retorno","Saída","Extra ent.","Extra saída"]
         for i, hora in enumerate(hrs):
             lbl = LABELS[i] if i < len(LABELS) else f"Batida {i+1}"
             color = C["accent"] if i%2==0 else C["success"]
             rf = tk.Frame(self.det_inner, bg=C["bg_card"], pady=5); rf.pack(fill="x")
-            tk.Frame(rf, bg=color, width=3).pack(side="left", fill="y", padx=(0,12))
+            tk.Frame(rf, bg=color, width=3).pack(side="left", fill="y", padx=12)
             tk.Label(rf, text=lbl,  bg=C["bg_card"], fg=C["text_mid"], font=FONT_SMALL, width=14, anchor="w").pack(side="left")
             tk.Label(rf, text=hora, bg=C["bg_card"], fg=C["text_hi"], font=("Segoe UI",14,"bold")).pack(side="right")
-        Sep(self.det_inner).pack(fill="x", pady=(12,8))
+        Sep(self.det_inner).pack(fill="x", pady=8)
         tk.Label(self.det_inner, text=f"{qtd} batida(s)", bg=C["bg_card"], fg=C["text_mid"], font=FONT_SMALL).pack(anchor="w")
         if qtd%2!=0:
-            wb = tk.Frame(self.det_inner, bg="#2A1A0A", pady=8, padx=12); wb.pack(fill="x", pady=(8,0))
+            wb = tk.Frame(self.det_inner, bg="#2A1A0A", pady=8, padx=12); wb.pack(fill="x", pady=0)
             tk.Label(wb, text="Número ímpar de batidas", bg="#2A1A0A", fg=C["warning"], font=("Segoe UI",10,"bold")).pack(anchor="w")
             tk.Label(wb, text="Possível batida faltante ou esquecida.", bg="#2A1A0A", fg=C["text_mid"], font=FONT_SMALL).pack(anchor="w")
         if row["erros"]:
-            eb = tk.Frame(self.det_inner, bg="#200A0A", pady=8, padx=12); eb.pack(fill="x", pady=(8,0))
+            eb = tk.Frame(self.det_inner, bg="#200A0A", pady=8, padx=12); eb.pack(fill="x", pady=0)
             tk.Label(eb, text="Erro de leitura", bg="#200A0A", fg=C["danger"], font=("Segoe UI",10,"bold")).pack(anchor="w")
             tk.Label(eb, text=row["erros"], bg="#200A0A", fg=C["text_mid"], font=FONT_SMALL, wraplength=260, justify="left").pack(anchor="w")
         if not row["funcionario_id"]:
-            ub = tk.Frame(self.det_inner, bg="#0A1520", pady=8, padx=12); ub.pack(fill="x", pady=(8,0))
+            ub = tk.Frame(self.det_inner, bg="#0A1520", pady=8, padx=12); ub.pack(fill="x", pady=0)
             tk.Label(ub, text="Funcionário não identificado", bg="#0A1520", fg=C["accent"], font=("Segoe UI",10,"bold")).pack(anchor="w")
             tk.Label(ub, text=f"ID: {row['funcionario_raw']}", bg="#0A1520", fg=C["text_mid"], font=FONT_SMALL).pack(anchor="w")
 
@@ -1095,26 +1477,26 @@ class PageCalculo(tk.Frame):
         lh  = tk.Frame(hdr, bg=C["bg_panel"]); lh.pack(side="left", fill="x", expand=True)
         tk.Label(lh, text="Cálculo de Horas", bg=C["bg_panel"], fg=C["text_hi"], font=FONT_TITLE).pack(anchor="w")
         tk.Label(lh, text="Jornada · Horas extras · Faltas · Saldo diário e semanal",
-                 bg=C["bg_panel"], fg=C["text_mid"], font=FONT_BODY).pack(anchor="w", pady=(4,0))
+                 bg=C["bg_panel"], fg=C["text_mid"], font=FONT_BODY).pack(anchor="w", pady=0)
         Btn(hdr, "Recalcular", self._recalc, style="primary", icon="↻").pack(side="right", pady=4)
-        Btn(hdr, "Excel", self._exportar_excel, style="outline", icon="📊").pack(side="right", pady=4, padx=(0,6))
-        Btn(hdr, "PDF",   self._exportar_pdf,   style="outline", icon="📄").pack(side="right", pady=4, padx=(0,4))
+        Btn(hdr, "Excel", self._exportar_excel, style="outline", icon="📊").pack(side="right", pady=4, padx=6)
+        Btn(hdr, "PDF",   self._exportar_pdf,   style="outline", icon="📄").pack(side="right", pady=4, padx=4)
         Sep(self).pack(fill="x", padx=36)
 
         # Filtros
         flt = tk.Frame(self, bg=C["bg_card"], highlightbackground=C["border"], highlightthickness=1)
-        flt.pack(fill="x", padx=36, pady=(20,0))
+        flt.pack(fill="x", padx=36, pady=0)
         tk.Frame(flt, bg=C["accent"], height=2).pack(fill="x")
         fi = tk.Frame(flt, bg=C["bg_card"], padx=20, pady=12); fi.pack(fill="x")
 
         tk.Label(fi, text="Funcionário:", bg=C["bg_card"], fg=C["text_mid"], font=FONT_SMALL).pack(side="left")
         self.cb_func = ttk.Combobox(fi, state="readonly", width=22, font=FONT_BODY)
-        self.cb_func.pack(side="left", padx=(8,24))
+        self.cb_func.pack(side="left", padx=24)
         self.cb_func.bind("<<ComboboxSelected>>", lambda e: self._recalc())
 
         tk.Label(fi, text="Importação:", bg=C["bg_card"], fg=C["text_mid"], font=FONT_SMALL).pack(side="left")
         self.cb_imp = ttk.Combobox(fi, state="readonly", width=34, font=FONT_BODY)
-        self.cb_imp.pack(side="left", padx=(8,24))
+        self.cb_imp.pack(side="left", padx=24)
         self.cb_imp.bind("<<ComboboxSelected>>", lambda e: self._recalc())
         Btn(fi, "Tudo", self._reset_filtros, style="outline").pack(side="left")
 
@@ -1129,9 +1511,9 @@ class PageCalculo(tk.Frame):
         body.columnconfigure(0, weight=3); body.columnconfigure(1, weight=2)
 
         # Tabela de dias
-        lw = tk.Frame(body, bg=C["bg_panel"]); lw.grid(row=0, column=0, sticky="nsew", padx=(0,14))
+        lw = tk.Frame(body, bg=C["bg_panel"]); lw.grid(row=0, column=0, sticky="nsew", padx=14)
         tk.Label(lw, text="REGISTRO DIÁRIO",
-                 bg=C["bg_panel"], fg=C["text_mid"], font=("Segoe UI",9,"bold")).pack(anchor="w", pady=(0,6))
+                 bg=C["bg_panel"], fg=C["text_mid"], font=("Segoe UI",9,"bold")).pack(anchor="w", pady=6)
         tw = tk.Frame(lw, bg=C["bg_panel"]); tw.pack(fill="both", expand=True)
         _tv_style()
         cols = ("func","data","dia","horarios","trab","extra","falta","saldo","alertas")
@@ -1159,7 +1541,7 @@ class PageCalculo(tk.Frame):
 
         # Detalhe dia
         tk.Label(rw, text="DETALHE DO DIA",
-                 bg=C["bg_panel"], fg=C["text_mid"], font=("Segoe UI",9,"bold")).pack(anchor="w", pady=(0,6))
+                 bg=C["bg_panel"], fg=C["text_mid"], font=("Segoe UI",9,"bold")).pack(anchor="w", pady=6)
         self.det_card = tk.Frame(rw, bg=C["bg_card"],
                                   highlightbackground=C["border"], highlightthickness=1)
         self.det_card.pack(fill="x")
@@ -1170,7 +1552,7 @@ class PageCalculo(tk.Frame):
 
         # Saldo semanal
         tk.Label(rw, text="SALDO SEMANAL",
-                 bg=C["bg_panel"], fg=C["text_mid"], font=("Segoe UI",9,"bold")).pack(anchor="w", pady=(16,6))
+                 bg=C["bg_panel"], fg=C["text_mid"], font=("Segoe UI",9,"bold")).pack(anchor="w", pady=6)
         self.sem_card = tk.Frame(rw, bg=C["bg_card"],
                                   highlightbackground=C["border"], highlightthickness=1)
         self.sem_card.pack(fill="both", expand=True)
@@ -1181,11 +1563,11 @@ class PageCalculo(tk.Frame):
                  bg=C["bg_card"], fg=C["text_lo"], font=("Segoe UI",11), justify="center").pack(expand=True)
 
         # Rodapé legenda
-        leg = tk.Frame(self, bg=C["bg_panel"], padx=36, pady=(0,12)); leg.pack(fill="x")
+        leg = tk.Frame(self, bg=C["bg_panel"], padx=36, pady=12); leg.pack(fill="x")
         for cor, txt in [(C["success"],"■ Saldo positivo / horas extras"),
                          (C["danger"], "■ Saldo negativo / faltas"),
                          (C["warning"],"■ Atenção / alertas")]:
-            tk.Label(leg, text=txt, bg=C["bg_panel"], fg=cor, font=FONT_SMALL).pack(side="left", padx=(0,24))
+            tk.Label(leg, text=txt, bg=C["bg_panel"], fg=cor, font=FONT_SMALL).pack(side="left", padx=24)
 
     def _build_cards(self):
         for w in self.cards_frame.winfo_children(): w.destroy()
@@ -1203,12 +1585,12 @@ class PageCalculo(tk.Frame):
         for i, (t, v, s, c) in enumerate(placeholders):
             card = tk.Frame(self.cards_frame, bg=C["bg_card"],
                             highlightbackground=C["border"], highlightthickness=1)
-            card.grid(row=0, column=i, padx=(0,14), sticky="ew", pady=(0,4))
+            card.grid(row=0, column=i, padx=14, sticky="ew", pady=4)
             tk.Frame(card, bg=c, height=3).pack(fill="x")
             inn = tk.Frame(card, bg=C["bg_card"], padx=16, pady=12); inn.pack(fill="both", expand=True)
             tk.Label(inn, text=t, bg=C["bg_card"], fg=C["text_mid"], font=FONT_SMALL).pack(anchor="w")
             lv = tk.Label(inn, text=v, bg=C["bg_card"], fg=c, font=("Segoe UI",22,"bold"))
-            lv.pack(anchor="w", pady=(4,0))
+            lv.pack(anchor="w", pady=0)
             tk.Label(inn, text=s, bg=C["bg_card"], fg=C["text_lo"], font=FONT_SMALL).pack(anchor="w")
             self._card_labels[i] = (lv, c)
 
@@ -1306,11 +1688,11 @@ class PageCalculo(tk.Frame):
         tk.Label(self.det_inner, text=d["_func_nome"],
                  bg=C["bg_card"], fg=C["text_hi"], font=("Segoe UI",13,"bold")).pack(anchor="w")
         tk.Label(self.det_inner, text=f"{_fd(d['data'])}  —  {d['dia_nome']}",
-                 bg=C["bg_card"], fg=C["accent"], font=FONT_BODY).pack(anchor="w", pady=(2,12))
-        Sep(self.det_inner).pack(fill="x", pady=(0,12))
+                 bg=C["bg_card"], fg=C["accent"], font=FONT_BODY).pack(anchor="w", pady=12)
+        Sep(self.det_inner).pack(fill="x", pady=12)
 
         # Grade de métricas 2×2
-        mg = tk.Frame(self.det_inner, bg=C["bg_card"]); mg.pack(fill="x", pady=(0,12))
+        mg = tk.Frame(self.det_inner, bg=C["bg_card"]); mg.pack(fill="x", pady=12)
         mg.columnconfigure(0, weight=1); mg.columnconfigure(1, weight=1)
         metrics = [
             ("Trabalhado",   d["trabalhados_fmt"], C["accent"],   0, 0),
@@ -1321,32 +1703,32 @@ class PageCalculo(tk.Frame):
         for lbl, val, color, row, col in metrics:
             mf = tk.Frame(mg, bg=C["bg_input"], padx=12, pady=10)
             mf.grid(row=row, column=col, padx=(0 if col>0 else 0, 6 if col==0 else 0),
-                    pady=(0, 6), sticky="ew")
+                    pady=6, sticky="ew")
             tk.Label(mf, text=lbl, bg=C["bg_input"], fg=C["text_lo"], font=FONT_SMALL).pack(anchor="w")
             tk.Label(mf, text=val, bg=C["bg_input"], fg=color, font=("Segoe UI",16,"bold")).pack(anchor="w")
 
         # Saldo grande
         saldo_cor = C["success"] if d["saldo_min"] >= 0 else C["danger"]
         saldo_bg  = C["extra_bg"] if d["saldo_min"] >= 0 else C["falta_bg"]
-        sf = tk.Frame(self.det_inner, bg=saldo_bg, pady=10, padx=12); sf.pack(fill="x", pady=(0,12))
+        sf = tk.Frame(self.det_inner, bg=saldo_bg, pady=10, padx=12); sf.pack(fill="x", pady=12)
         tk.Label(sf, text="SALDO DO DIA", bg=saldo_bg, fg=C["text_mid"], font=FONT_SMALL).pack(anchor="w")
         tk.Label(sf, text=d["saldo_fmt"], bg=saldo_bg, fg=saldo_cor, font=FONT_BIG).pack(anchor="w")
 
         # Batidas com rótulos
         if d["horarios"]:
-            Sep(self.det_inner).pack(fill="x", pady=(0,10))
+            Sep(self.det_inner).pack(fill="x", pady=10)
             LABELS = ["Entrada","Saída almoço","Retorno","Saída","Extra ent.","Extra saída","Bat.7","Bat.8"]
             for i, hora in enumerate(d["horarios"]):
                 lbl   = LABELS[i] if i < len(LABELS) else f"Batida {i+1}"
                 color = C["accent"] if i%2==0 else C["success"]
                 rf = tk.Frame(self.det_inner, bg=C["bg_card"], pady=3); rf.pack(fill="x")
-                tk.Frame(rf, bg=color, width=3).pack(side="left", fill="y", padx=(0,10))
+                tk.Frame(rf, bg=color, width=3).pack(side="left", fill="y", padx=10)
                 tk.Label(rf, text=lbl,  bg=C["bg_card"], fg=C["text_mid"], font=FONT_SMALL, width=14, anchor="w").pack(side="left")
                 tk.Label(rf, text=hora, bg=C["bg_card"], fg=C["text_hi"],  font=("Segoe UI",13,"bold")).pack(side="right")
 
         # Alertas
         if d["alertas"]:
-            Sep(self.det_inner).pack(fill="x", pady=(10,8))
+            Sep(self.det_inner).pack(fill="x", pady=8)
             af = tk.Frame(self.det_inner, bg=C["atencao_bg"], pady=8, padx=12); af.pack(fill="x")
             tk.Label(af, text="Alertas", bg=C["atencao_bg"], fg=C["warning"], font=("Segoe UI",10,"bold")).pack(anchor="w")
             for al in d["alertas"]:
@@ -1374,7 +1756,7 @@ class PageCalculo(tk.Frame):
             # Barra de saldo proporcional
             bar_max = 480   # 8h em pixels relativos
             bar_px  = min(abs(saldo) * 80 // 60, 100)
-            tk.Frame(rw, bg=cor, height=16, width=max(4, bar_px)).pack(side="left", padx=(8,8))
+            tk.Frame(rw, bg=cor, height=16, width=max(4, bar_px)).pack(side="left", padx=8)
             tk.Label(rw, text=_saldo_fmt(saldo), bg=C["bg_card"], fg=cor,
                      font=("Segoe UI",11,"bold")).pack(side="right")
 
@@ -1456,10 +1838,10 @@ class PageBancoHoras(tk.Frame):
         lh  = tk.Frame(hdr, bg=C["bg_panel"]); lh.pack(side="left", fill="x", expand=True)
         tk.Label(lh, text="Banco de Horas", bg=C["bg_panel"], fg=C["text_hi"], font=FONT_TITLE).pack(anchor="w")
         tk.Label(lh, text="Saldo acumulado de horas extras · Registrar retiradas",
-                 bg=C["bg_panel"], fg=C["text_mid"], font=FONT_BODY).pack(anchor="w", pady=(4,0))
+                 bg=C["bg_panel"], fg=C["text_mid"], font=FONT_BODY).pack(anchor="w", pady=0)
         Btn(hdr, "↻  Atualizar", self._load, style="outline").pack(side="right", pady=4)
-        Btn(hdr, "Excel", self._exportar_excel, style="outline", icon="📊").pack(side="right", pady=4, padx=(0,4))
-        Btn(hdr, "PDF",   self._exportar_pdf,   style="outline", icon="📄").pack(side="right", pady=4, padx=(0,4))
+        Btn(hdr, "Excel", self._exportar_excel, style="outline", icon="📊").pack(side="right", pady=4, padx=4)
+        Btn(hdr, "PDF",   self._exportar_pdf,   style="outline", icon="📄").pack(side="right", pady=4, padx=4)
         Sep(self).pack(fill="x", padx=36)
 
         # Corpo dividido: lista funcionários (esq) + detalhe (dir)
@@ -1467,9 +1849,9 @@ class PageBancoHoras(tk.Frame):
         body.columnconfigure(0, weight=2); body.columnconfigure(1, weight=3)
 
         # ── Coluna esquerda: tabela de saldos ─────────────────────────────────
-        lw = tk.Frame(body, bg=C["bg_panel"]); lw.grid(row=0, column=0, sticky="nsew", padx=(0,16))
+        lw = tk.Frame(body, bg=C["bg_panel"]); lw.grid(row=0, column=0, sticky="nsew", padx=16)
         tk.Label(lw, text="SALDO POR FUNCIONÁRIO",
-                 bg=C["bg_panel"], fg=C["text_mid"], font=("Segoe UI",9,"bold")).pack(anchor="w", pady=(0,8))
+                 bg=C["bg_panel"], fg=C["text_mid"], font=("Segoe UI",9,"bold")).pack(anchor="w", pady=8)
 
         tw = tk.Frame(lw, bg=C["bg_panel"]); tw.pack(fill="both", expand=True)
         _tv_style()
@@ -1494,7 +1876,7 @@ class PageBancoHoras(tk.Frame):
 
         # Card de saldo destaque
         tk.Label(rw, text="SALDO ATUAL",
-                 bg=C["bg_panel"], fg=C["text_mid"], font=("Segoe UI",9,"bold")).pack(anchor="w", pady=(0,6))
+                 bg=C["bg_panel"], fg=C["text_mid"], font=("Segoe UI",9,"bold")).pack(anchor="w", pady=6)
         self.saldo_card = tk.Frame(rw, bg=C["bg_card"],
                                     highlightbackground=C["border"], highlightthickness=1)
         self.saldo_card.pack(fill="x")
@@ -1503,14 +1885,14 @@ class PageBancoHoras(tk.Frame):
         self._lbl_func  = tk.Label(si, text="Selecione um funcionário", bg=C["bg_card"],
                                     fg=C["text_mid"], font=("Segoe UI",12)); self._lbl_func.pack(anchor="w")
         self._lbl_saldo = tk.Label(si, text="--:--", bg=C["bg_card"],
-                                    fg=C["accent"], font=("Segoe UI",36,"bold")); self._lbl_saldo.pack(anchor="w", pady=(4,0))
+                                    fg=C["accent"], font=("Segoe UI",36,"bold")); self._lbl_saldo.pack(anchor="w", pady=0)
         self._lbl_sub   = tk.Label(si, text="", bg=C["bg_card"],
                                     fg=C["text_lo"], font=FONT_SMALL); self._lbl_sub.pack(anchor="w")
 
         # Formulário de retirada
         Sep(rw).pack(fill="x", pady=12)
         tk.Label(rw, text="REGISTRAR RETIRADA",
-                 bg=C["bg_panel"], fg=C["text_mid"], font=("Segoe UI",9,"bold")).pack(anchor="w", pady=(0,6))
+                 bg=C["bg_panel"], fg=C["text_mid"], font=("Segoe UI",9,"bold")).pack(anchor="w", pady=6)
         ret_card = tk.Frame(rw, bg=C["bg_card"],
                              highlightbackground=C["border"], highlightthickness=1)
         ret_card.pack(fill="x")
@@ -1518,12 +1900,12 @@ class PageBancoHoras(tk.Frame):
         ri = tk.Frame(ret_card, bg=C["bg_card"], padx=20, pady=16); ri.pack(fill="x")
 
         # Linha 1: horas e minutos
-        r1 = tk.Frame(ri, bg=C["bg_card"]); r1.pack(fill="x", pady=(0,10))
+        r1 = tk.Frame(ri, bg=C["bg_card"]); r1.pack(fill="x", pady=10)
         tk.Label(r1, text="Horas:", bg=C["bg_card"], fg=C["text_mid"], font=FONT_BODY, width=8, anchor="w").pack(side="left")
         self.ent_horas = tk.Entry(r1, bg=C["bg_input"], fg=C["text_hi"], font=FONT_BODY,
                                    insertbackground=C["accent"], width=6,
                                    highlightbackground=C["border"], highlightthickness=1)
-        self.ent_horas.pack(side="left", padx=(0,16))
+        self.ent_horas.pack(side="left", padx=16)
         self.ent_horas.insert(0, "0")
         tk.Label(r1, text="Min:", bg=C["bg_card"], fg=C["text_mid"], font=FONT_BODY, width=5, anchor="w").pack(side="left")
         self.ent_min = tk.Entry(r1, bg=C["bg_input"], fg=C["text_hi"], font=FONT_BODY,
@@ -1533,7 +1915,7 @@ class PageBancoHoras(tk.Frame):
         self.ent_min.insert(0, "0")
 
         # Linha 2: descrição
-        r2 = tk.Frame(ri, bg=C["bg_card"]); r2.pack(fill="x", pady=(0,14))
+        r2 = tk.Frame(ri, bg=C["bg_card"]); r2.pack(fill="x", pady=14)
         tk.Label(r2, text="Motivo:", bg=C["bg_card"], fg=C["text_mid"], font=FONT_BODY, width=8, anchor="w").pack(side="left")
         self.ent_desc = tk.Entry(r2, bg=C["bg_input"], fg=C["text_hi"], font=FONT_BODY,
                                   insertbackground=C["accent"],
@@ -1545,7 +1927,7 @@ class PageBancoHoras(tk.Frame):
         # PIN do funcionário
         Sep(rw).pack(fill="x", pady=12)
         tk.Label(rw, text="PIN DO FUNCIONÁRIO (para consulta no celular)",
-                 bg=C["bg_panel"], fg=C["text_mid"], font=("Segoe UI",9,"bold")).pack(anchor="w", pady=(0,6))
+                 bg=C["bg_panel"], fg=C["text_mid"], font=("Segoe UI",9,"bold")).pack(anchor="w", pady=6)
         pin_card = tk.Frame(rw, bg=C["bg_card"],
                              highlightbackground=C["border"], highlightthickness=1)
         pin_card.pack(fill="x")
@@ -1556,15 +1938,15 @@ class PageBancoHoras(tk.Frame):
         self.ent_pin = tk.Entry(pr, bg=C["bg_input"], fg=C["text_hi"], font=FONT_BODY,
                                  insertbackground=C["accent"], width=10, show="*",
                                  highlightbackground=C["border"], highlightthickness=1)
-        self.ent_pin.pack(side="left", padx=(0,10))
+        self.ent_pin.pack(side="left", padx=10)
         Btn(pr, "Salvar PIN", self._salvar_pin, style="outline").pack(side="left")
         self._lbl_pin_info = tk.Label(pi, text="", bg=C["bg_card"], fg=C["text_lo"], font=FONT_SMALL)
-        self._lbl_pin_info.pack(anchor="w", pady=(6,0))
+        self._lbl_pin_info.pack(anchor="w", pady=0)
 
         # Histórico de movimentos
         Sep(rw).pack(fill="x", pady=12)
         tk.Label(rw, text="HISTÓRICO",
-                 bg=C["bg_panel"], fg=C["text_mid"], font=("Segoe UI",9,"bold")).pack(anchor="w", pady=(0,6))
+                 bg=C["bg_panel"], fg=C["text_mid"], font=("Segoe UI",9,"bold")).pack(anchor="w", pady=6)
         hist_fr = tk.Frame(rw, bg=C["bg_card"],
                             highlightbackground=C["border"], highlightthickness=1)
         hist_fr.pack(fill="both", expand=True)
@@ -1634,7 +2016,7 @@ class PageBancoHoras(tk.Frame):
             mins = mov["minutos"]
             val  = f"{icon}{mins//60:02d}:{mins%60:02d}"
             rw = tk.Frame(inner, bg=C["bg_card"], pady=5); rw.pack(fill="x")
-            tk.Frame(rw, bg=cor, width=3).pack(side="left", fill="y", padx=(0,10))
+            tk.Frame(rw, bg=cor, width=3).pack(side="left", fill="y", padx=10)
             lb = tk.Frame(rw, bg=C["bg_card"]); lb.pack(side="left", fill="x", expand=True)
             tk.Label(lb, text=mov["descricao"] or "—", bg=C["bg_card"],
                      fg=C["text_hi"], font=FONT_SMALL, anchor="w").pack(anchor="w")
@@ -1785,9 +2167,68 @@ class PageConfiguracoes(tk.Frame):
     def _build(self):
         hdr = tk.Frame(self, bg=C["bg_panel"], padx=36, pady=30); hdr.pack(fill="x")
         tk.Label(hdr, text="Configurações", bg=C["bg_panel"], fg=C["text_hi"], font=FONT_TITLE).pack(anchor="w")
-        tk.Label(hdr, text="Parâmetros do sistema", bg=C["bg_panel"], fg=C["text_mid"], font=FONT_BODY).pack(anchor="w", pady=(4,0))
+        tk.Label(hdr, text="Parâmetros do sistema", bg=C["bg_panel"], fg=C["text_mid"], font=FONT_BODY).pack(anchor="w", pady=0)
         Sep(self).pack(fill="x", padx=36)
+
         body = tk.Frame(self, bg=C["bg_panel"], padx=36, pady=24); body.pack(fill="both", expand=True)
+
+        # ── Seção: Sincronização com a Nuvem ─────────────────────────────
+        tk.Label(body, text="☁  Sincronização com a Nuvem", bg=C["bg_panel"],
+                 fg=C["accent"], font=("Segoe UI",10,"bold")).pack(anchor="w", pady=8)
+
+        cloud_card = tk.Frame(body, bg=C["bg_card"],
+                              highlightbackground=C["border"], highlightthickness=1)
+        cloud_card.pack(fill="x")
+
+        cfg = _cfg_load()
+
+        # URL do servidor
+        row_url = tk.Frame(cloud_card, bg=C["bg_card"], padx=20, pady=12); row_url.pack(fill="x")
+        tk.Label(row_url, text="URL do Servidor (Railway)", bg=C["bg_card"],
+                 fg=C["text_mid"], font=FONT_BODY, width=26, anchor="w").pack(side="left")
+        self._url_var = tk.StringVar(value=cfg["servidor_url"])
+        ent_url = tk.Entry(row_url, textvariable=self._url_var, bg=C["bg_input"],
+                           fg=C["text_hi"], font=FONT_MONO, insertbackground=C["accent"],
+                           relief="flat", width=46)
+        ent_url.pack(side="left", padx=8)
+        tk.Label(row_url, text="ex: https://sistema-ponto-production.up.railway.app",
+                 bg=C["bg_card"], fg=C["text_lo"], font=FONT_SMALL).pack(side="left")
+
+        Sep(cloud_card).pack(fill="x", padx=20)
+
+        # Admin Key
+        row_key = tk.Frame(cloud_card, bg=C["bg_card"], padx=20, pady=12); row_key.pack(fill="x")
+        tk.Label(row_key, text="ADMIN_KEY (opcional)", bg=C["bg_card"],
+                 fg=C["text_mid"], font=FONT_BODY, width=26, anchor="w").pack(side="left")
+        self._key_var = tk.StringVar(value=cfg["admin_key"])
+        ent_key = tk.Entry(row_key, textvariable=self._key_var, bg=C["bg_input"],
+                           fg=C["text_hi"], font=FONT_MONO, insertbackground=C["accent"],
+                           relief="flat", width=46, show="●")
+        ent_key.pack(side="left", padx=8)
+        tk.Label(row_key, text="Deve ser a mesma do Railway → Variables → ADMIN_KEY",
+                 bg=C["bg_card"], fg=C["text_lo"], font=FONT_SMALL).pack(side="left")
+
+        Sep(cloud_card).pack(fill="x", padx=20)
+
+        # Botões + status
+        row_btn = tk.Frame(cloud_card, bg=C["bg_card"], padx=20, pady=14); row_btn.pack(fill="x")
+        self._sync_status = tk.Label(row_btn, text="", bg=C["bg_card"],
+                                     fg=C["success"], font=FONT_SMALL)
+        self._sync_status.pack(side="right", padx=0)
+
+        Btn(row_btn, "Sincronizar Agora", cmd=self._sync_manual,
+            style="primary", icon="↑").pack(side="right")
+        Btn(row_btn, "Salvar URL / Chave", cmd=self._salvar_cfg,
+            style="secondary", icon="💾").pack(side="right", padx=8)
+
+        # Aviso requests
+        if not _REQUESTS_OK:
+            warn = tk.Frame(cloud_card, bg="#2a1a00", padx=20, pady=10); warn.pack(fill="x")
+            tk.Label(warn,
+                     text="⚠  Biblioteca 'requests' não instalada.  Execute:  pip install requests",
+                     bg="#2a1a00", fg="#ffaa00", font=FONT_SMALL).pack(anchor="w")
+
+        # ── Seção: Sistema ────────────────────────────────────────────────
         for title, items in [
             ("Sistema", [
                 ("Versão",         APP_VERSION),
@@ -1805,15 +2246,13 @@ class PageConfiguracoes(tk.Frame):
                 ("✓ Etapa 2", "Importação CSV / TXT / XLS / XLSX"),
                 ("✓ Etapa 3", "Cálculo de jornada, extras, faltas e saldo"),
                 ("✓ Etapa 4", "Banco de Horas acumulado + retiradas + PIN"),
-            ]),
-            ("Próximas Etapas", [
-                ("Etapa 5", "Servidor web + app celular para consulta de saldo"),
-                ("Etapa 6", "Relatórios PDF e exportação Excel"),
-                ("Etapa 7", "Backup automático"),
+                ("✓ Etapa 5", "Relatórios PDF e exportação Excel"),
+                ("✓ Etapa 6", "Deploy na nuvem (Railway + PostgreSQL)"),
+                ("✓ Etapa 7", "Sincronização automática PC → Nuvem → App"),
             ]),
         ]:
             tk.Label(body, text=title, bg=C["bg_panel"],
-                     fg=C["accent"], font=("Segoe UI",10,"bold")).pack(anchor="w", pady=(16,8))
+                     fg=C["accent"], font=("Segoe UI",10,"bold")).pack(anchor="w", pady=8)
             card = tk.Frame(body, bg=C["bg_card"], highlightbackground=C["border"], highlightthickness=1)
             card.pack(fill="x")
             for lbl, val in items:
@@ -1822,6 +2261,24 @@ class PageConfiguracoes(tk.Frame):
                          font=FONT_BODY, width=26, anchor="w").pack(side="left")
                 tk.Label(row, text=val, bg=C["bg_card"], fg=C["text_hi"], font=FONT_MONO).pack(side="left")
                 Sep(card).pack(fill="x", padx=20)
+
+    def _salvar_cfg(self):
+        _cfg_save(self._url_var.get(), self._key_var.get())
+        self._sync_status.config(text="✔ Configuração salva!", fg=C["success"])
+        self.after(3000, lambda: self._sync_status.config(text=""))
+
+    def _sync_manual(self):
+        _cfg_save(self._url_var.get(), self._key_var.get())
+        self._sync_status.config(text="Sincronizando…", fg=C["text_mid"])
+        self.update_idletasks()
+
+        def _run():
+            ok, msg = sincronizar_nuvem(self.db)
+            color = C["success"] if ok else C["danger"]
+            self._sync_status.config(text=msg, fg=color)
+            self.after(6000, lambda: self._sync_status.config(text=""))
+
+        self.after(50, _run)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1846,7 +2303,7 @@ class App(tk.Tk):
         brand = tk.Frame(self.sidebar, bg=C["sidebar"], pady=26); brand.pack(fill="x")
         tk.Label(brand, text="◉",     bg=C["sidebar"], fg=C["accent"],  font=("Segoe UI",20,"bold")).pack()
         tk.Label(brand, text="PONTO", bg=C["sidebar"], fg=C["text_hi"], font=("Segoe UI",13,"bold")).pack()
-        tk.Label(brand, text="Sistema de Controle", bg=C["sidebar"], fg=C["text_lo"], font=FONT_SMALL).pack(pady=(2,0))
+        tk.Label(brand, text="Sistema de Controle", bg=C["sidebar"], fg=C["text_lo"], font=FONT_SMALL).pack(pady=0)
         Sep(self.sidebar).pack(fill="x", padx=16, pady=8)
 
         self.nav_btns = {}
@@ -1869,7 +2326,7 @@ class App(tk.Tk):
     def _nav_btn(self, parent, key, icon, label):
         frame    = tk.Frame(parent, bg=C["sidebar"], cursor="hand2"); frame.pack(fill="x", pady=2)
         icon_lbl = tk.Label(frame, text=icon,  bg=C["sidebar"], fg=C["text_mid"], font=("Segoe UI",13,"bold"), width=4)
-        icon_lbl.pack(side="left", padx=(6,4), pady=11)
+        icon_lbl.pack(side="left", padx=4, pady=11)
         text_lbl = tk.Label(frame, text=label, bg=C["sidebar"], fg=C["text_mid"], font=("Segoe UI",11), anchor="w")
         text_lbl.pack(side="left", fill="x", expand=True)
         bar = tk.Frame(frame, bg=C["sidebar"], width=4); bar.pack(side="right", fill="y")
