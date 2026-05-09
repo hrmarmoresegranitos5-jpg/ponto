@@ -116,6 +116,9 @@ def sincronizar_nuvem(db) -> tuple:
             "nome":       func["nome"],
             "pin":        func["pin"] if "pin" in func.keys() else None,
             "saldo_min":  saldo,
+            "salario":    func["salario"],
+            "tipo_pag":   func["tipo_pag"],
+            "jornada_h":  func["jornada_h"],
             "movimentos": [
                 {
                     "tipo":       m["tipo"],
@@ -2726,18 +2729,39 @@ class PageFinanceiro(tk.Frame):
         tk.Label(name_f, text=f"Tipo de pagamento: {tipo_str}",
                  bg=C["bg_panel"], fg=C["text_mid"], font=FONT_SMALL).pack(anchor="w")
 
-        # Multiplicador configurável
+        # Multiplicador configurável — botões de seleção rápida
         mult_f = tk.Frame(top, bg=C["bg_card"],
                           highlightbackground=C["border"], highlightthickness=1)
         mult_f.pack(side="right", padx=4)
         tk.Frame(mult_f, bg=self._GOLD, height=2).pack(fill="x")
         mi = tk.Frame(mult_f, bg=C["bg_card"], padx=14, pady=10); mi.pack()
-        tk.Label(mi, text="Multiplicador h. extra", bg=C["bg_card"],
+        tk.Label(mi, text="Hora extra — multiplicador", bg=C["bg_card"],
                  fg=C["text_lo"], font=(FONT_SMALL[0],8,"bold")).pack(anchor="w")
+
+        # Botões rápidos 1.5× / 2× / 3×
+        def _set_mult(v):
+            self._mult_var.set(v)
+            self._salvar_mult(f["id"])
+            self._select_func(f["id"])  # recarrega tela com novo valor
+
+        btn_row = tk.Frame(mi, bg=C["bg_card"]); btn_row.pack(fill="x", pady=6)
+        for label, val in [("1.5× (+50%)", 1.5), ("2× (dobro)", 2.0), ("3× (triplo)", 3.0)]:
+            is_sel = abs(mult - val) < 0.01
+            cor_bg = self._GOLD if is_sel else C["bg_input"]
+            cor_fg = C["bg_card"] if is_sel else C["text_mid"]
+            tk.Button(btn_row, text=label, bg=cor_bg, fg=cor_fg,
+                      relief="flat", cursor="hand2",
+                      font=("Segoe UI", 9, "bold" if is_sel else "normal"),
+                      padx=8, pady=4,
+                      command=lambda v=val: _set_mult(v)).pack(side="left", padx=2)
+
+        # Campo manual para valores personalizados
         mrow = tk.Frame(mi, bg=C["bg_card"]); mrow.pack(fill="x", pady=2)
+        tk.Label(mrow, text="Ou digite:", bg=C["bg_card"], fg=C["text_lo"],
+                 font=FONT_SMALL).pack(side="left", padx=(0,4))
         self._mult_var.set(mult)
         mult_ent = tk.Entry(mrow, textvariable=self._mult_var, width=5,
-                            bg=C["bg_input"], fg=self._GOLD, font=("Segoe UI",13,"bold"),
+                            bg=C["bg_input"], fg=self._GOLD, font=("Segoe UI",11,"bold"),
                             insertbackground=self._GOLD, relief="flat",
                             highlightbackground=C["border"], highlightthickness=1)
         mult_ent.pack(side="left")
