@@ -142,6 +142,34 @@ def sincronizar_nuvem(db) -> tuple:
     except Exception as e:
         return False, f"Falha na conexão:\n{e}"
 
+
+def enviar_notificacao_servidor(func_id=None, tipo="info", titulo="", mensagem="", icone="🔔") -> bool:
+    """
+    Envia uma notificação para o servidor (aparecerá no app do funcionário).
+    func_id=None → envia para todos.
+    Retorna True se enviou com sucesso.
+    """
+    if not _REQUESTS_OK:
+        return False
+    cfg = _cfg_load()
+    url = cfg["servidor_url"]
+    key = cfg["admin_key"]
+    if not url:
+        return False
+    endpoint = url.rstrip("/") + "/api/admin/notificacao"
+    headers  = {"Content-Type": "application/json"}
+    if key:
+        headers["X-Admin-Key"] = key
+    payload = {"tipo": tipo, "titulo": titulo, "mensagem": mensagem, "icone": icone}
+    if func_id:
+        payload["func_id"] = func_id
+    try:
+        resp = _requests.post(endpoint, json=payload, headers=headers, timeout=8)
+        return resp.status_code == 200
+    except Exception:
+        return False
+
+
 C = {
     "bg_dark":    "#0D0F14",  "bg_panel":   "#13161E",
     "bg_card":    "#1A1E2A",  "bg_input":   "#0F1219",
@@ -987,12 +1015,26 @@ class Database:
             " VALUES(?,?,?,?,?,?)",
             (func_id, minutos_pagos, valor_pago, tipo, descricao, now))
         self.conn.commit()
-        # ── Notificação automática ────────────────────────────────────────────
+        # ── Notificação automática (local) ────────────────────────────────────
         if self.notif:
             func = self.get_funcionario(func_id)
             nome = func["nome"].capitalize() if func else "Funcionário"
             brl = f"R$ {valor_pago:,.2f}".replace(",","X").replace(".",",").replace("X",".")
             self.notif.pagamento_lancado(nome, func_id, brl)
+        # ── Notificação remota (app do funcionário) ────────────────────────────
+        try:
+            func = self.get_funcionario(func_id)
+            nome = func["nome"].capitalize() if func else "Funcionário"
+            brl  = f"R$ {valor_pago:,.2f}".replace(",","X").replace(".",",").replace("X",".")
+            enviar_notificacao_servidor(
+                func_id=func_id,
+                tipo="pagamento",
+                titulo=f"💵 Pagamento registrado: {brl}",
+                mensagem=f"Um pagamento de {brl} foi lançado para {nome}. {descricao or ''}".strip(),
+                icone="💵"
+            )
+        except Exception:
+            pass
 
     def get_historico_pagamentos(self, func_id):
         return self.conn.execute(
