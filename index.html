@@ -811,6 +811,23 @@
 
 <script>
 // ═══════════════════════════════════════════════
+// ⚙️  CONFIGURAÇÃO — EDITE AQUI
+// ═══════════════════════════════════════════════
+
+// URL do servidor Railway (sem barra no final).
+// Deixe '' se o index.html for servido pelo próprio servidor Flask.
+// Exemplo: 'https://sistema-ponto-production.up.railway.app'
+const API_BASE = '';
+
+// Lista de funcionários — edite para adicionar ou remover nomes.
+const FUNCIONARIOS = [
+  { nome: 'Fabricio' },
+  { nome: 'Gibs'     },
+  { nome: 'Hugo'     },
+  { nome: 'Tiago'    },
+];
+
+// ═══════════════════════════════════════════════
 // ESTADO
 // ═══════════════════════════════════════════════
 let _nomeAtual    = null;   // nome do funcionário logado
@@ -847,47 +864,23 @@ function irParaSelecao() {
 }
 
 // ═══════════════════════════════════════════════
-// SELEÇÃO DE FUNCIONÁRIO
+// SELEÇÃO DE FUNCIONÁRIO (lista estática — sem API)
 // ═══════════════════════════════════════════════
-async function carregarFuncionarios() {
+function carregarFuncionarios() {
   const body = document.getElementById('sel-body');
-  body.innerHTML = '<div class="sel-loading"><div class="spinner" style="margin:0"></div></div>';
+  body.innerHTML = '';
 
-  try {
-    const res  = await fetch('/api/funcionarios');
-    const list = await res.json();
+  const funcs  = FUNCIONARIOS.filter(f => !f.owner);
+  const owners = FUNCIONARIOS.filter(f =>  f.owner);
 
-    const funcs  = list.filter(f => !f.owner);
-    const owners = list.filter(f => f.owner);
+  funcs.forEach((f, i) => body.appendChild(criarCard(f, i, false)));
 
-    body.innerHTML = '';
-
-    // Funcionários
-    funcs.forEach((f, i) => {
-      const card = criarCard(f, i);
-      body.appendChild(card);
-    });
-
-    // Separador + Proprietário (se houver)
-    if (owners.length) {
-      const div = document.createElement('div');
-      div.className = 'sel-divider';
-      div.innerHTML = '<div class="sel-divider-line"></div><div class="sel-divider-txt">Gestão</div><div class="sel-divider-line"></div>';
-      body.appendChild(div);
-      owners.forEach((f, i) => {
-        const card = criarCard(f, funcs.length + i, true);
-        body.appendChild(card);
-      });
-    }
-  } catch (err) {
-    body.innerHTML = `
-      <div class="offline-card">
-        <div class="offline-icon">📡</div>
-        <div class="offline-title">Sem conexão</div>
-        <div class="offline-desc">Verifique sua internet e tente novamente.</div>
-      </div>
-      <button class="btn-retry" onclick="carregarFuncionarios()">↻ Tentar novamente</button>
-    `;
+  if (owners.length) {
+    const div = document.createElement('div');
+    div.className = 'sel-divider';
+    div.innerHTML = '<div class="sel-divider-line"></div><div class="sel-divider-txt">Gestão</div><div class="sel-divider-line"></div>';
+    body.appendChild(div);
+    owners.forEach((f, i) => body.appendChild(criarCard(f, funcs.length + i, true)));
   }
 }
 
@@ -964,7 +957,7 @@ async function carregarSaldo() {
   btn.classList.add('spinning');
 
   try {
-    const res = await fetch('/api/saldo-por-nome/' + encodeURIComponent(_nomeAtual));
+    const res = await fetch(API_BASE + '/api/saldo-por-nome/' + encodeURIComponent(_nomeAtual));
     btn.classList.remove('spinning');
 
     if (!res.ok) {
