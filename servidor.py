@@ -40,6 +40,7 @@ DB_FILE      = os.path.join(os.path.dirname(__file__) or ".", "ponto.db")
 STATIC_DIR   = os.path.dirname(__file__) or "."
 PORT         = int(os.environ.get("PORT", 5000))
 TOKEN_TTL    = timedelta(hours=8)
+ADMIN_KEY    = os.environ.get("ADMIN_KEY", "")  # Chave para sincronização do ponto.py
 
 # Railway usa postgres://, psycopg2 precisa de postgresql://
 if DATABASE_URL.startswith("postgres://"):
@@ -392,6 +393,85 @@ def api_health():
         "banco":  "postgresql" if USE_POSTGRES else "sqlite",
         "hora":   datetime.now().isoformat(),
     }), 200
+
+
+@app.route("/api/admin/sincronizar", methods=["POST"])
+def api_admin_sincronizar():
+    """
+    Recebe saldo e movimentos de todos os funcionários enviados pelo ponto.py
+    e atualiza o banco da nuvem. Protegido pela ADMIN_KEY (se configurada).
+    """
+    if ADMIN_KEY:
+        if request.headers.get("X-Admin-Key", "") != ADMIN_KEY:
+            return jsonify({"erro": "Não autorizado. Verifique a ADMIN_KEY."}), 401
+
+    dados = request.get_json(silent=True) or {}
+    funcionarios = dados.get("funcionarios", [])
+    if not funcionarios:
+        return jsonify({"erro": "Nenhum dado recebido."}), 400
+
+    conn = _conn()
+    now  = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    atualizados = 0
+
+    try:
+        for func in funcionarios:
+            nome      = (func.get("nome") or "").strip()
+            saldo_min = int(func.get("saldo_min", 0))
+            pin       = func.get("pin") or None
+            movs      = func.get("movimentos", [])
+            if not nome:
+                continue
+
+            # ── Upsert funcionário ──────────────────────────────────────────
+            _run(conn,
+                "INSERT INTO funcionarios(nome,pin,salario,tipo_pag,jornada_h,criado_em,ativo)"
+                " VALUES(?,?,0,'mes',8,?,1)"
+                " ON CONFLICT(nome) DO UPDATE SET pin=excluded.pin",
+                (nome, pin, now))
+
+            cur = _run(conn, "SELECT id FROM funcionarios WHERE nome=?", (nome,))
+            row = _d(cur.fetchone())
+            if not row:
+                continue
+            fid = row["id"]
+
+            # ── Upsert saldo ────────────────────────────────────────────────
+            _run(conn,
+                "INSERT INTO banco_horas(funcionario_id,saldo_min,atualizado_em)"
+                " VALUES(?,?,?)"
+                " ON CONFLICT(funcionario_id) DO UPDATE"
+                " SET saldo_min=excluded.saldo_min, atualizado_em=excluded.atualizado_em",
+                (fid, saldo_min, now))
+
+            # ── Insere movimentos novos (evita duplicatas por criado_em+tipo+minutos) ──
+            for mov in movs:
+                criado_em = (mov.get("criado_em") or now)[:19]
+                cur2 = _run(conn,
+                    "SELECT id FROM banco_horas_mov"
+                    " WHERE funcionario_id=? AND tipo=? AND minutos=? AND criado_em=?",
+                    (fid, mov.get("tipo","credito"), int(mov.get("minutos",0)), criado_em))
+                if not _d(cur2.fetchone()):
+                    _run(conn,
+                        "INSERT INTO banco_horas_mov"
+                        "(funcionario_id,tipo,minutos,descricao,referencia,criado_em)"
+                        " VALUES(?,?,?,?,?,?)",
+                        (fid, mov.get("tipo","credito"), int(mov.get("minutos",0)),
+                         mov.get("descricao",""), mov.get("referencia",""), criado_em))
+
+            atualizados += 1
+
+        conn.commit()
+        conn.close()
+        return jsonify({"ok": True, "atualizados": atualizados}), 200
+
+    except Exception as e:
+        try:
+            conn.rollback()
+            conn.close()
+        except Exception:
+            pass
+        return jsonify({"erro": str(e)}), 500
 
 
 # ──────────────────────────────────────────────────────────────────────────────
