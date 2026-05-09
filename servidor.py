@@ -202,6 +202,14 @@ def _d(row):
 # ──────────────────────────────────────────────────────────────────────────────
 # CONSULTAS
 # ──────────────────────────────────────────────────────────────────────────────
+def buscar_func_por_nome(nome: str):
+    conn = _conn()
+    cur  = _run(conn, "SELECT id, nome FROM funcionarios WHERE nome=? AND ativo=1", (nome,))
+    row  = cur.fetchone()
+    conn.close()
+    return _d(row)
+
+
 def buscar_func_por_pin(pin: str):
     conn = _conn()
     cur  = _run(conn, "SELECT id, nome FROM funcionarios WHERE pin=? AND ativo=1", (pin,))
@@ -348,6 +356,18 @@ def api_saldo():
 def api_funcionarios():
     """Lista resumida de todos os funcionários com saldo."""
     return jsonify(listar_funcionarios_resumo()), 200
+
+
+@app.route("/api/saldo-por-nome/<nome>")
+def api_saldo_por_nome(nome):
+    """
+    Retorna o saldo de um funcionário pelo nome.
+    Não exige token — a segurança vem do app ficar bloqueado no dispositivo.
+    """
+    func = buscar_func_por_nome(nome)
+    if not func:
+        return jsonify({"erro": "Funcionário não encontrado."}), 404
+    return jsonify(buscar_saldo(func["id"])), 200
 
 
 @app.route("/api/health")
