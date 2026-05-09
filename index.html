@@ -666,6 +666,47 @@
       display: flex; flex-direction: column; align-items: flex-end; gap: 3px;
     }
 
+    /* ── BLOCO DE TRANSPARÊNCIA DE CÁLCULO ──────────────────────── */
+    .calc-transp { cursor: pointer; user-select: none; }
+    .calc-transp:active { opacity: 0.8; }
+    .calc-toggle-arrow {
+      font-size: 22px; color: var(--gold); transition: transform 0.3s ease;
+      line-height: 1;
+    }
+    .calc-detalhes {
+      background: var(--stone3);
+      border: 1px solid var(--border2);
+      border-radius: 16px;
+      margin: 4px 0 8px;
+      padding: 16px 18px;
+      animation: fadeInDown 0.25s ease both;
+    }
+    @keyframes fadeInDown {
+      from { opacity:0; transform: translateY(-8px); }
+      to   { opacity:1; transform: translateY(0); }
+    }
+    .calc-linha {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 7px 0;
+      border-bottom: 1px solid var(--border);
+      gap: 8px;
+    }
+    .calc-linha:last-child { border-bottom: none; }
+    .calc-item-label {
+      font-size: 12px; color: var(--mid); flex: 1;
+    }
+    .calc-item-val {
+      font-size: 13px; color: var(--cream); font-weight: 600;
+      text-align: right;
+    }
+    .calc-destaque { background: rgba(200,169,110,0.06); border-radius: 8px; padding: 8px 6px; margin: 4px 0; }
+    .calc-destaque .calc-item-label { color: var(--gold2); }
+    .calc-formula .calc-item-label { color: var(--lo); font-size: 11px; }
+    .calc-separador { height: 1px; background: var(--border2); margin: 8px 0; }
+    .calc-total .calc-item-label { color: var(--green2); font-size: 13px; font-weight: 600; }
+    .calc-final .calc-item-label { color: var(--gold); font-size: 13px; font-weight: 600; }
+    .calc-final .calc-item-val { font-size: 16px; }
+
     .metric-status-dot {
       width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
       margin-bottom: 2px;
@@ -947,6 +988,477 @@
       font-weight: 600;
       color: var(--cream);
     }
+
+    /* ─────────────────────────────────────────────────────────────
+       BANNER DE HORA EXTRA BONIFICADA
+    ───────────────────────────────────────────────────────────── */
+    .bonus-banner {
+      position: relative;
+      border-radius: 22px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 160, 0, 0.35);
+      box-shadow:
+        0 0 0 1px rgba(255,200,0,0.08),
+        0 12px 40px rgba(255,120,0,0.18),
+        0 2px 0 rgba(255,200,80,0.12) inset;
+      animation: bonus-appear 0.6s cubic-bezier(0.16,1,0.3,1) both;
+    }
+
+    @keyframes bonus-appear {
+      from { opacity: 0; transform: translateY(-12px) scale(0.97); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    .bonus-bg {
+      position: absolute; inset: 0;
+      background: linear-gradient(135deg,
+        rgba(30,20,5,0.98) 0%,
+        rgba(40,25,5,0.96) 40%,
+        rgba(25,15,5,0.98) 100%);
+    }
+
+    /* Partículas de fundo animadas */
+    .bonus-particles {
+      position: absolute; inset: 0; pointer-events: none; overflow: hidden;
+    }
+    .bonus-particle {
+      position: absolute;
+      width: 2px; height: 2px;
+      border-radius: 50%;
+      background: #ffd060;
+      animation: float-up linear infinite;
+      opacity: 0;
+    }
+    @keyframes float-up {
+      0%   { opacity: 0;   transform: translateY(0)   scale(1); }
+      20%  { opacity: 0.8; }
+      80%  { opacity: 0.4; }
+      100% { opacity: 0;   transform: translateY(-60px) scale(0.3); }
+    }
+
+    /* Barra shimmer no topo */
+    .bonus-shimmer-bar {
+      height: 2px;
+      background: linear-gradient(90deg,
+        transparent 0%,
+        rgba(255,200,60,0.6) 30%,
+        #ffd060 50%,
+        rgba(255,200,60,0.6) 70%,
+        transparent 100%);
+      background-size: 200% 100%;
+      animation: shimmer-move 2s linear infinite;
+    }
+    @keyframes shimmer-move {
+      0%   { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
+    .bonus-body {
+      position: relative; z-index: 1;
+      padding: 16px 18px 18px;
+    }
+
+    .bonus-top {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      gap: 10px; margin-bottom: 12px;
+    }
+
+    .bonus-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: rgba(255,180,0,0.15);
+      border: 1px solid rgba(255,180,0,0.35);
+      border-radius: 20px;
+      padding: 5px 12px;
+      font-size: 10px; font-weight: 700;
+      letter-spacing: 2px; text-transform: uppercase;
+      color: #ffd060;
+    }
+    .bonus-badge-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: #ffd060;
+      box-shadow: 0 0 8px #ffd060;
+      animation: pulse-dot 1.2s ease-in-out infinite;
+      flex-shrink: 0;
+    }
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.4; transform: scale(0.7); }
+    }
+
+    .bonus-mult-display {
+      display: flex; align-items: baseline; gap: 3px;
+      flex-shrink: 0;
+    }
+    .bonus-mult-num {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 48px; font-weight: 700; line-height: 1;
+      color: #ffd060;
+      text-shadow: 0 0 30px rgba(255,200,0,0.6), 0 0 60px rgba(255,150,0,0.3);
+      animation: glow-pulse 2s ease-in-out infinite;
+      letter-spacing: -2px;
+    }
+    @keyframes glow-pulse {
+      0%, 100% { text-shadow: 0 0 20px rgba(255,200,0,0.5), 0 0 40px rgba(255,150,0,0.2); }
+      50%       { text-shadow: 0 0 40px rgba(255,220,0,0.9), 0 0 80px rgba(255,150,0,0.5); }
+    }
+    .bonus-mult-x {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 22px; font-weight: 400;
+      color: rgba(255,208,96,0.7);
+      margin-bottom: 6px;
+    }
+
+    .bonus-title {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 22px; font-weight: 600;
+      color: #ede7d5; line-height: 1.2;
+      margin-bottom: 4px;
+    }
+    .bonus-desc {
+      font-size: 12px; color: rgba(200,180,120,0.75);
+      line-height: 1.5;
+    }
+
+    /* Contador regressivo */
+    .bonus-timer {
+      margin-top: 14px;
+      background: rgba(0,0,0,0.35);
+      border: 1px solid rgba(255,180,0,0.15);
+      border-radius: 14px;
+      padding: 10px 14px;
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px;
+    }
+    .bonus-timer-label {
+      font-size: 9px; letter-spacing: 2.5px; text-transform: uppercase;
+      color: rgba(200,170,80,0.6);
+    }
+    .bonus-timer-digits {
+      display: flex; align-items: center; gap: 4px;
+    }
+    .bonus-digit-block {
+      display: flex; flex-direction: column; align-items: center; gap: 1px;
+    }
+    .bonus-digit {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 18px; font-weight: 600;
+      color: #ffd060;
+      background: rgba(255,200,0,0.1);
+      border: 1px solid rgba(255,200,0,0.2);
+      border-radius: 7px;
+      padding: 2px 8px;
+      min-width: 34px; text-align: center;
+      letter-spacing: -1px;
+      transition: all 0.15s;
+    }
+    .bonus-digit.tick {
+      background: rgba(255,200,0,0.22);
+      transform: scale(1.04);
+    }
+    .bonus-digit-unit {
+      font-size: 7px; letter-spacing: 1px;
+      color: rgba(200,160,60,0.55);
+      text-transform: uppercase;
+    }
+    .bonus-timer-sep {
+      font-size: 16px; font-weight: 700;
+      color: rgba(255,200,0,0.4);
+      margin-bottom: 10px;
+    }
+
+    /* Valor em destaque no banner */
+    .bonus-valor-row {
+      margin-top: 12px;
+      display: flex; align-items: center; justify-content: space-between;
+      background: rgba(255,180,0,0.07);
+      border: 1px solid rgba(255,180,0,0.15);
+      border-radius: 12px;
+      padding: 10px 14px;
+    }
+    .bonus-valor-label {
+      font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase;
+      color: rgba(200,160,60,0.65);
+    }
+    .bonus-valor-num {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 20px; font-weight: 600;
+      color: #ffd060;
+    }
+
+    /* ─────────────────────────────────────────────────────────────
+       CARD FINANCEIRO NO RESUMO
+    ───────────────────────────────────────────────────────────── */
+    .fin-card {
+      border-radius: 22px;
+      overflow: hidden;
+      background: linear-gradient(160deg, rgba(20,24,18,0.97) 0%, rgba(14,18,12,0.98) 100%);
+      border: 1px solid rgba(93,186,127,0.2);
+      box-shadow: 0 12px 40px rgba(0,0,0,0.4), 0 0 0 1px rgba(93,186,127,0.04);
+    }
+
+    .fin-card-header {
+      padding: 16px 18px 12px;
+      display: flex; align-items: center; justify-content: space-between;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+    }
+
+    .fin-card-title {
+      display: flex; align-items: center; gap: 8px;
+    }
+    .fin-card-title-icon {
+      width: 28px; height: 28px; border-radius: 8px;
+      background: rgba(93,186,127,0.12);
+      border: 1px solid rgba(93,186,127,0.2);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px;
+    }
+    .fin-card-title-text {
+      font-size: 10px; font-weight: 600;
+      letter-spacing: 2.5px; text-transform: uppercase;
+      color: rgba(93,186,127,0.8);
+    }
+
+    .fin-card-mult-tag {
+      display: inline-flex; align-items: center; gap: 4px;
+      background: rgba(200,169,110,0.1);
+      border: 1px solid rgba(200,169,110,0.2);
+      border-radius: 20px; padding: 3px 9px;
+      font-size: 10px; font-weight: 600;
+      color: var(--gold);
+    }
+
+    /* Total a receber — hero number */
+    .fin-hero {
+      padding: 16px 18px 0;
+    }
+    .fin-hero-label {
+      font-size: 9px; letter-spacing: 2.5px; text-transform: uppercase;
+      color: var(--lo); margin-bottom: 6px;
+    }
+    .fin-hero-amount {
+      display: flex; align-items: baseline; gap: 6px;
+    }
+    .fin-hero-num {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 42px; font-weight: 700; line-height: 0.95;
+      color: var(--green2);
+      letter-spacing: -2px;
+    }
+    .fin-hero-num.zero { color: var(--lo); }
+    .fin-hero-sub {
+      font-size: 11px; color: var(--lo); margin-top: 4px;
+    }
+
+    /* Grid financeiro: pago + pendente */
+    .fin-grid {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      padding: 14px 18px 16px;
+    }
+
+    .fin-item {
+      background: rgba(255,255,255,0.025);
+      border: 1px solid rgba(255,255,255,0.04);
+      border-radius: 14px;
+      padding: 12px 13px;
+      display: flex; flex-direction: column; gap: 4px;
+      position: relative; overflow: hidden;
+    }
+    .fin-item::before {
+      content: '';
+      position: absolute; top: 0; left: 0; right: 0; height: 1px;
+      border-radius: 14px 14px 0 0;
+    }
+    .fin-item.pago::before   { background: linear-gradient(90deg, transparent, rgba(93,186,127,0.5), transparent); }
+    .fin-item.pendente::before { background: linear-gradient(90deg, transparent, rgba(200,169,110,0.5), transparent); }
+
+    .fin-item-icon { font-size: 14px; margin-bottom: 2px; }
+    .fin-item-label {
+      font-size: 8px; letter-spacing: 2px; text-transform: uppercase;
+      color: var(--lo); line-height: 1;
+    }
+    .fin-item-val {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 22px; font-weight: 600; line-height: 1;
+    }
+    .fin-item-val.pago    { color: var(--green2); }
+    .fin-item-val.pendente{ color: var(--gold2); }
+    .fin-item-val.zero    { color: var(--lo); }
+
+    .fin-item-sub {
+      font-size: 9px; color: var(--lo); margin-top: 1px;
+    }
+
+    /* Barra de progresso pagamento */
+    .fin-progress {
+      margin: 0 18px 16px;
+    }
+    .fin-progress-track {
+      height: 4px; border-radius: 4px;
+      background: rgba(255,255,255,0.06);
+      overflow: hidden;
+    }
+    .fin-progress-fill {
+      height: 100%; border-radius: 4px;
+      background: linear-gradient(90deg, var(--green), var(--green2));
+      transition: width 0.8s cubic-bezier(0.16,1,0.3,1);
+    }
+    .fin-progress-labels {
+      display: flex; justify-content: space-between;
+      margin-top: 5px;
+    }
+    .fin-progress-label {
+      font-size: 9px; color: var(--lo);
+    }
+    .fin-progress-label.right { color: var(--mid); }
+
+    /* ─────────────────────────────────────────────────────────────
+       TELA FINANCEIRO
+    ───────────────────────────────────────────────────────────── */
+    #financeiro {
+      display: none;
+      flex-direction: column;
+      height: 100dvh;
+      background: var(--stone);
+      overflow: hidden;
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      z-index: 5;
+    }
+    #financeiro.active { display: flex; }
+
+    .fin-screen-header {
+      position: sticky; top: 0; z-index: 20;
+      padding: calc(14px + var(--safe-top)) 20px 12px;
+      background: rgba(8,8,6,0.80);
+      backdrop-filter: blur(20px) saturate(1.4);
+      -webkit-backdrop-filter: blur(20px) saturate(1.4);
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      flex-shrink: 0;
+    }
+    .fin-screen-header-top {
+      display: flex; align-items: center; gap: 12px;
+    }
+    .fin-screen-title {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 22px; font-weight: 600; color: var(--cream);
+      flex: 1;
+    }
+
+    .fin-screen-scroll {
+      flex: 1;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      padding: 16px 16px calc(80px + var(--safe-bot));
+    }
+
+    /* Resumo financeiro topo da tela */
+    .fin-summary-hero {
+      background: linear-gradient(160deg, rgba(18,24,16,0.97), rgba(10,16,10,0.98));
+      border: 1px solid rgba(93,186,127,0.18);
+      border-radius: 22px;
+      padding: 22px 20px 20px;
+      margin-bottom: 12px;
+      position: relative; overflow: hidden;
+    }
+    .fin-summary-hero::before {
+      content: '';
+      position: absolute; top: 0; left: 0; right: 0; height: 2px;
+      background: linear-gradient(90deg, transparent, var(--green), transparent);
+    }
+    .fin-summary-label {
+      font-size: 9px; letter-spacing: 3px; text-transform: uppercase;
+      color: var(--lo); margin-bottom: 8px;
+    }
+    .fin-summary-amount {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 52px; font-weight: 700; line-height: 0.95;
+      color: var(--green2); letter-spacing: -3px;
+      margin-bottom: 6px;
+    }
+    .fin-summary-amount.zero { color: var(--lo); font-size: 36px; }
+    .fin-summary-sub {
+      font-size: 12px; color: var(--mid);
+    }
+
+    .fin-summary-pills {
+      display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap;
+    }
+    .fin-summary-pill {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 20px; padding: 6px 13px;
+      display: flex; flex-direction: column; gap: 1px;
+    }
+    .fin-summary-pill-val {
+      font-size: 13px; font-weight: 600; color: var(--cream);
+      font-family: 'Cormorant Garamond', serif;
+    }
+    .fin-summary-pill-val.green  { color: var(--green2); }
+    .fin-summary-pill-val.gold   { color: var(--gold2); }
+    .fin-summary-pill-label {
+      font-size: 8px; letter-spacing: 1.5px; text-transform: uppercase;
+      color: var(--lo);
+    }
+
+    /* Seção detalhes de cálculo */
+    .fin-calc-card {
+      background: var(--stone3);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 16px 18px;
+      margin-bottom: 10px;
+    }
+    .fin-calc-title {
+      font-size: 9px; letter-spacing: 2.5px; text-transform: uppercase;
+      color: var(--lo); margin-bottom: 12px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .fin-calc-title::after {
+      content: ''; flex: 1; height: 1px;
+      background: var(--border);
+    }
+    .fin-calc-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.035);
+    }
+    .fin-calc-row:last-child { border-bottom: none; }
+    .fin-calc-row-label {
+      font-size: 12px; color: var(--mid);
+      display: flex; align-items: center; gap: 7px;
+    }
+    .fin-calc-row-val {
+      font-size: 13px; font-weight: 500; color: var(--cream);
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 16px;
+    }
+    .fin-calc-row-val.green { color: var(--green2); }
+    .fin-calc-row-val.gold  { color: var(--gold2); }
+    .fin-calc-row-val.red   { color: var(--red2); }
+    .fin-calc-row-val.mid   { color: var(--mid); }
+
+    .fin-calc-formula {
+      margin-top: 12px;
+      background: rgba(255,255,255,0.025);
+      border: 1px solid rgba(255,255,255,0.04);
+      border-radius: 10px;
+      padding: 10px 13px;
+      font-size: 11px; color: var(--lo);
+      line-height: 1.6; font-family: 'DM Sans', monospace;
+    }
+    .fin-calc-formula span { color: var(--gold); }
+
+    /* Sem salário configurado */
+    .fin-no-salary {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 10px; padding: 50px 24px;
+      text-align: center;
+    }
+    .fin-no-salary-icon { font-size: 36px; opacity: 0.3; }
+    .fin-no-salary-title { font-size: 15px; color: var(--mid); }
+    .fin-no-salary-desc { font-size: 12px; color: var(--lo); line-height: 1.6; }
 
     /* ── Reset confirm ────────────────────────────────────────── */
     #reset-overlay {
@@ -1281,6 +1793,226 @@
     .dia-card.pos { border-bottom: 2px solid rgba(93,186,127,0.25); }
     .dia-card.neg { border-bottom: 2px solid rgba(201,96,96,0.25); }
 
+
+    /* ─────────────────────────────────────────────────────────────
+       TOAST RICO (notificações in-app)
+    ───────────────────────────────────────────────────────────── */
+    #toast {
+      position: fixed;
+      bottom: calc(80px + var(--safe-bot));
+      left: 16px; right: 16px;
+      transform: translateY(16px);
+      background: var(--stone4);
+      border: 1px solid var(--border2);
+      border-radius: 16px;
+      padding: 0;
+      box-shadow: 0 12px 48px rgba(0,0,0,0.75), 0 1px 0 rgba(255,255,255,0.05) inset;
+      z-index: 9999;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.28s cubic-bezier(0.16,1,0.3,1),
+                  transform 0.28s cubic-bezier(0.16,1,0.3,1);
+      overflow: hidden;
+    }
+    #toast.show {
+      opacity: 1; transform: translateY(0); pointer-events: all;
+    }
+    /* Barra colorida no topo do toast */
+    .toast-bar {
+      height: 3px; width: 100%;
+    }
+    .toast-bar.bonus  { background: linear-gradient(90deg, #b38000, #ffd060, #b38000); background-size: 200%; animation: shimmer-move 1.8s linear infinite; }
+    .toast-bar.green  { background: linear-gradient(90deg, transparent, var(--green2), transparent); }
+    .toast-bar.blue   { background: linear-gradient(90deg, transparent, #6ab0e0, transparent); }
+    .toast-bar.gold   { background: linear-gradient(90deg, transparent, var(--gold2), transparent); }
+    .toast-bar.red    { background: linear-gradient(90deg, transparent, var(--red2), transparent); }
+    .toast-bar.neutral{ background: var(--border2); }
+
+    .toast-inner {
+      display: flex; align-items: flex-start; gap: 12px;
+      padding: 13px 15px 14px;
+    }
+    .toast-icon {
+      font-size: 20px; line-height: 1; flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .toast-content { flex: 1; min-width: 0; }
+    .toast-title {
+      font-size: 13px; font-weight: 600; color: var(--cream);
+      line-height: 1.3; margin-bottom: 2px;
+    }
+    .toast-desc {
+      font-size: 11px; color: var(--mid); line-height: 1.45;
+    }
+    .toast-close {
+      font-size: 16px; color: var(--lo);
+      cursor: pointer; padding: 2px 0 0 4px; flex-shrink: 0;
+      -webkit-tap-highlight-color: transparent;
+      transition: color 0.15s;
+    }
+    .toast-close:active { color: var(--mid); }
+
+    /* Progress bar (auto-dismiss) */
+    .toast-progress {
+      height: 2px;
+      background: rgba(255,255,255,0.06);
+      overflow: hidden;
+    }
+    .toast-progress-fill {
+      height: 100%;
+      background: rgba(255,255,255,0.18);
+      transform-origin: left;
+      transition: transform linear;
+    }
+
+    /* ─────────────────────────────────────────────────────────────
+       BADGE DE NOTIFICAÇÃO NO NAV
+    ───────────────────────────────────────────────────────────── */
+    .nav-badge {
+      position: absolute;
+      top: 4px; right: calc(50% - 18px);
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #ffd060;
+      border: 2px solid var(--stone);
+      box-shadow: 0 0 8px rgba(255,208,96,0.7);
+      animation: badge-pulse 1.4s ease-in-out infinite;
+      display: none;
+    }
+    .nav-badge.show { display: block; }
+    @keyframes badge-pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50%       { transform: scale(1.3); opacity: 0.7; }
+    }
+
+    /* Badge verde para tab Financeiro (saldo pendente) */
+    .nav-badge.green {
+      background: var(--green2);
+      box-shadow: 0 0 8px rgba(93,186,127,0.6);
+    }
+
+    /* ─────────────────────────────────────────────────────────────
+       CENTRO DE NOTIFICAÇÕES (sheet deslizante)
+    ───────────────────────────────────────────────────────────── */
+    #notif-overlay {
+      position: fixed; inset: 0; z-index: 9980;
+      background: rgba(8,8,6,0.82);
+      backdrop-filter: blur(6px);
+      display: flex; align-items: flex-end;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.25s;
+    }
+    #notif-overlay.show {
+      opacity: 1; pointer-events: all;
+    }
+    .notif-sheet {
+      width: 100%;
+      background: var(--stone3);
+      border: 1px solid var(--border);
+      border-bottom: none;
+      border-radius: 24px 24px 0 0;
+      padding: 0 0 calc(20px + var(--safe-bot));
+      transform: translateY(100%);
+      transition: transform 0.38s cubic-bezier(0.16,1,0.3,1);
+      max-height: 75dvh;
+      display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+    #notif-overlay.show .notif-sheet { transform: translateY(0); }
+
+    .notif-sheet-handle {
+      width: 36px; height: 4px;
+      background: var(--border2); border-radius: 2px;
+      margin: 14px auto 0;
+      flex-shrink: 0;
+    }
+    .notif-sheet-header {
+      padding: 14px 20px 12px;
+      display: flex; align-items: center; justify-content: space-between;
+      flex-shrink: 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .notif-sheet-title {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 20px; font-weight: 600; color: var(--cream);
+    }
+    .notif-sheet-clear {
+      font-size: 11px; color: var(--mid);
+      cursor: pointer; padding: 4px 8px;
+      border: 1px solid var(--border); border-radius: 8px;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .notif-sheet-clear:active { background: var(--stone4); }
+
+    .notif-scroll {
+      flex: 1; overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      padding: 12px 16px 8px;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+
+    .notif-item {
+      display: flex; align-items: flex-start; gap: 12px;
+      background: var(--stone4);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 12px 14px;
+      position: relative;
+      animation: card-in 0.3s ease both;
+    }
+    .notif-item.unread {
+      border-color: rgba(200,169,110,0.2);
+      background: rgba(200,169,110,0.04);
+    }
+    .notif-item-icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
+    .notif-item-body { flex: 1; min-width: 0; }
+    .notif-item-title {
+      font-size: 13px; font-weight: 600; color: var(--cream);
+      line-height: 1.3; margin-bottom: 2px;
+    }
+    .notif-item-desc { font-size: 11px; color: var(--mid); line-height: 1.45; }
+    .notif-item-time { font-size: 9px; color: var(--lo); margin-top: 4px; }
+    .notif-unread-dot {
+      position: absolute; top: 12px; right: 12px;
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--gold);
+    }
+
+    .notif-empty {
+      display: flex; flex-direction: column;
+      align-items: center; gap: 8px;
+      padding: 40px 20px; text-align: center;
+      color: var(--lo); font-size: 13px;
+    }
+    .notif-empty-icon { font-size: 32px; opacity: 0.3; }
+
+    /* Sino no header */
+    .dash-notif-btn {
+      width: 38px; height: 38px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px; color: var(--mid);
+      cursor: pointer; flex-shrink: 0;
+      -webkit-tap-highlight-color: transparent;
+      transition: all 0.15s;
+      backdrop-filter: blur(8px);
+      position: relative;
+    }
+    .dash-notif-btn:active { background: rgba(200,169,110,0.1); color: var(--gold); border-color: rgba(200,169,110,0.25); }
+    .dash-notif-count {
+      position: absolute; top: -4px; right: -4px;
+      min-width: 16px; height: 16px;
+      background: var(--gold);
+      border-radius: 8px;
+      border: 2px solid var(--stone);
+      font-size: 9px; font-weight: 700;
+      color: var(--stone); line-height: 1;
+      display: flex; align-items: center; justify-content: center;
+      padding: 0 3px;
+      display: none;
+    }
+    .dash-notif-count.show { display: flex; }
   </style>
 </head>
 <body>
@@ -1325,7 +2057,7 @@
     </div>
   </div>
 
-  <!-- ══ DASHBOARD — TELA RESUMO ══════════════════════════════ -->\n  <div id="saldo" class="screen">\n    <!-- Header premium com avatar, saudação, cargo -->\n    <div class="dash-header">\n      <div class="dash-avatar-wrap" id="saldo-avatar">\n        <div class="dash-avatar" id="dash-avatar-letter">—</div>\n        <div class="dash-avatar-dot"></div>\n      </div>\n      <div class="dash-header-info">\n        <div class="dash-greeting" id="dash-greeting">Bem-vindo</div>\n        <div class="dash-name" id="saldo-nome">—</div>\n        <div class="dash-cargo" id="dash-cargo">HR Mármores · Banco de Horas</div>\n      </div>\n      <div class="dash-refresh-btn" id="btn-refresh" onclick="refreshSaldo()">↻</div>\n    </div>\n    <!-- Corpo do dashboard -->\n    <div class="dash-body" id="saldo-body">\n      <div class="spinner"></div>\n    </div>\n  </div>
+  <!-- ══ DASHBOARD — TELA RESUMO ══════════════════════════════ -->\n  <div id="saldo" class="screen">\n    <!-- Header premium com avatar, saudação, cargo -->\n    <div class="dash-header">\n      <div class="dash-avatar-wrap" id="saldo-avatar">\n        <div class="dash-avatar" id="dash-avatar-letter">—</div>\n        <div class="dash-avatar-dot"></div>\n      </div>\n      <div class="dash-header-info">\n        <div class="dash-greeting" id="dash-greeting">Bem-vindo</div>\n        <div class="dash-name" id="saldo-nome">—</div>\n        <div class="dash-cargo" id="dash-cargo">HR Mármores · Banco de Horas</div>\n      </div>\n      <div class="dash-notif-btn" id="btn-notif" onclick="abrirNotificacoes()">🔔<div class="dash-notif-count" id="notif-count"></div></div>\n      <div class="dash-refresh-btn" id="btn-refresh" onclick="refreshSaldo()">↻</div>\n    </div>\n    <!-- Corpo do dashboard -->\n    <div class="dash-body" id="saldo-body">\n      <div class="spinner"></div>\n    </div>\n  </div>
 
   <!-- ══ TELA HISTÓRICO ════════════════════════════════════════ -->
   <div id="historico">
@@ -1345,11 +2077,24 @@
     </div>
   </div>
 
+  <!-- ══ TELA FINANCEIRO ══════════════════════════════════════ -->
+  <div id="financeiro">
+    <div class="fin-screen-header">
+      <div class="fin-screen-header-top">
+        <div class="fin-screen-title">Financeiro</div>
+      </div>
+    </div>
+    <div class="fin-screen-scroll" id="fin-scroll">
+      <div class="spinner"></div>
+    </div>
+  </div>
+
   <!-- ══ BOTTOM NAV ════════════════════════════════════════════ -->
   <nav class="bottom-nav" id="bottom-nav">
     <div class="nav-tabs">
       <div class="nav-tab active" id="nav-resumo" onclick="irParaResumo()">
         <div class="nav-tab-pip"></div>
+        <div class="nav-badge" id="nav-badge-resumo"></div>
         <div class="nav-tab-icon">◈</div>
         <div class="nav-tab-label">Resumo</div>
       </div>
@@ -1357,6 +2102,12 @@
         <div class="nav-tab-pip"></div>
         <div class="nav-tab-icon">☰</div>
         <div class="nav-tab-label">Histórico</div>
+      </div>
+      <div class="nav-tab" id="nav-financeiro" onclick="irParaFinanceiro()">
+        <div class="nav-tab-pip"></div>
+        <div class="nav-badge green" id="nav-badge-fin"></div>
+        <div class="nav-tab-icon">💰</div>
+        <div class="nav-tab-label">Financeiro</div>
       </div>
       <div class="nav-tab" id="nav-admin" style="display:none" onclick="irParaAdmin()">
         <div class="nav-tab-pip"></div>
@@ -1377,6 +2128,18 @@
       <div class="spinner"></div>
     </div>
   </div>
+
+<!-- ══ CENTRO DE NOTIFICAÇÕES ════════════════════════════════ -->
+<div id="notif-overlay">
+  <div class="notif-sheet">
+    <div class="notif-sheet-handle"></div>
+    <div class="notif-sheet-header">
+      <div class="notif-sheet-title">Notificações</div>
+      <div class="notif-sheet-clear" onclick="limparNotificacoes()">Limpar tudo</div>
+    </div>
+    <div class="notif-scroll" id="notif-list"></div>
+  </div>
+</div>
 
 <div id="toast"></div>
 
@@ -1624,21 +2387,16 @@ function ocultarNav() {
   document.getElementById('bottom-nav').classList.remove('visible');
 }
 
-function setNavTab(aba) {
-  document.getElementById('nav-resumo').classList.toggle('active', aba === 'resumo');
-  document.getElementById('nav-historico').classList.toggle('active', aba === 'historico');
-  const navAdmin = document.getElementById('nav-admin');
-  if (navAdmin) navAdmin.classList.toggle('active', aba === 'admin');
-}
-
 function irParaResumo() {
   if (navigator.vibrate) navigator.vibrate(4);
   document.getElementById('historico').classList.remove('active');
+  document.getElementById('financeiro').classList.remove('active');
   setNavTab('resumo');
 }
 
 function irParaHistorico() {
   if (navigator.vibrate) navigator.vibrate(4);
+  document.getElementById('financeiro').classList.remove('active');
   document.getElementById('historico').classList.add('active');
   setNavTab('historico');
   carregarHistorico();
@@ -1668,8 +2426,140 @@ function renderSaldo(d) {
 
   const delay = (n) => `animation-delay:${n * 0.07}s`;
 
+  // ── Banner de Hora Bonificada (aparece se multiplicador > 1) ──
+  const temBonus = d.multiplicador && d.multiplicador > 1;
+  let bannerHTML = '';
+
+  if (temBonus) {
+    // Salva dados do banner globalmente para o contador
+    _bonusData = {
+      mult: d.multiplicador,
+      valorHExt: d.valor_hora_ext_fmt || '',
+      ativo: true,
+    };
+
+    // Gera partículas de fundo
+    const particles = Array.from({length: 12}, (_, i) => {
+      const left  = 5 + (i * 8) % 92;
+      const delay = (i * 0.4).toFixed(1);
+      const dur   = (2.5 + (i % 4) * 0.7).toFixed(1);
+      const size  = i % 3 === 0 ? 3 : 2;
+      return `<div class="bonus-particle" style="left:${left}%;bottom:${10+(i%5)*12}%;width:${size}px;height:${size}px;animation-duration:${dur}s;animation-delay:${delay}s"></div>`;
+    }).join('');
+
+    const multLabel = d.multiplicador === 2 ? 'Dobrada' :
+                      d.multiplicador === 3 ? 'Triplicada' :
+                      d.multiplicador === 1.5 ? '1.5× Ativa' :
+                      `${d.multiplicador}× Ativa`;
+
+    bannerHTML = `
+      <div class="bonus-banner" id="bonus-banner">
+        <div class="bonus-bg"></div>
+        <div class="bonus-particles">${particles}</div>
+        <div class="bonus-shimmer-bar"></div>
+        <div class="bonus-body">
+          <div class="bonus-top">
+            <div>
+              <div class="bonus-badge">
+                <div class="bonus-badge-dot"></div>
+                🔥 Hora Extra ${multLabel}
+              </div>
+              <div class="bonus-title" style="margin-top:10px">Hora Extra<br>Bonificada!</div>
+              <div class="bonus-desc">Suas extras valem <strong style="color:#ffd060">${d.multiplicador}× mais</strong> agora.<br>Cada hora extra = ${d.valor_hora_ext_fmt || '—'}</div>
+            </div>
+            <div class="bonus-mult-display">
+              <div class="bonus-mult-num" id="bonus-mult-num">${d.multiplicador}</div>
+              <div class="bonus-mult-x">×</div>
+            </div>
+          </div>
+          <div class="bonus-timer">
+            <div class="bonus-timer-label">⏱ Ativo há</div>
+            <div class="bonus-timer-digits">
+              <div class="bonus-digit-block">
+                <div class="bonus-digit" id="btd-h">00</div>
+                <div class="bonus-digit-unit">hrs</div>
+              </div>
+              <div class="bonus-timer-sep">:</div>
+              <div class="bonus-digit-block">
+                <div class="bonus-digit" id="btd-m">00</div>
+                <div class="bonus-digit-unit">min</div>
+              </div>
+              <div class="bonus-timer-sep">:</div>
+              <div class="bonus-digit-block">
+                <div class="bonus-digit" id="btd-s">00</div>
+                <div class="bonus-digit-unit">seg</div>
+              </div>
+            </div>
+          </div>
+          ${d.a_pagar && d.a_pagar > 0 ? `
+          <div class="bonus-valor-row">
+            <div class="bonus-valor-label">Valor acumulado extra</div>
+            <div class="bonus-valor-num">${d.a_pagar_fmt}</div>
+          </div>` : ''}
+        </div>
+      </div>`;
+    startBonusTimer();
+  } else {
+    _bonusData = null;
+    stopBonusTimer();
+  }
+
+  // ── Card Financeiro ──────────────────────────────────────────
+  let finCardHTML = '';
+  if (d.valor_hora && d.valor_hora > 0) {
+    const totalAReceber = d.valor_a_receber || 0;
+    const totalPago     = d.total_pago || 0;
+    const aPagar        = d.a_pagar || 0;
+    const pct           = totalAReceber > 0 ? Math.min(100, Math.round((totalPago / totalAReceber) * 100)) : 0;
+    const heroZero      = aPagar === 0;
+    const heroVal       = heroZero ? d.valor_fmt : d.a_pagar_fmt;
+
+    finCardHTML = `
+      <div class="fin-card" style="${delay(2)}">
+        <div class="fin-card-header">
+          <div class="fin-card-title">
+            <div class="fin-card-title-icon">💰</div>
+            <div class="fin-card-title-text">Financeiro</div>
+          </div>
+          ${temBonus ? `<div class="fin-card-mult-tag">⚡ ${d.multiplicador}×</div>` : ''}
+        </div>
+        <div class="fin-hero">
+          <div class="fin-hero-label">Saldo pendente a receber</div>
+          <div class="fin-hero-amount">
+            <div class="fin-hero-num ${heroZero ? 'zero' : ''}">${heroVal}</div>
+          </div>
+          <div class="fin-hero-sub">${heroZero ? 'Tudo quitado — parabéns!' : 'Ainda não pago'}</div>
+        </div>
+        <div class="fin-grid">
+          <div class="fin-item pago">
+            <div class="fin-item-icon">✅</div>
+            <div class="fin-item-label">Já pago</div>
+            <div class="fin-item-val pago">${d.total_pago_fmt || 'R$ 0,00'}</div>
+            <div class="fin-item-sub">Pagamentos recebidos</div>
+          </div>
+          <div class="fin-item pendente">
+            <div class="fin-item-icon">⏳</div>
+            <div class="fin-item-label">Total bruto</div>
+            <div class="fin-item-val pendente">${d.valor_fmt || 'R$ 0,00'}</div>
+            <div class="fin-item-sub">Com mult. ${d.multiplicador || 1.5}×</div>
+          </div>
+        </div>
+        ${totalAReceber > 0 ? `
+        <div class="fin-progress">
+          <div class="fin-progress-track">
+            <div class="fin-progress-fill" style="width:${pct}%"></div>
+          </div>
+          <div class="fin-progress-labels">
+            <div class="fin-progress-label">${pct}% pago</div>
+            <div class="fin-progress-label right">${d.valor_hora_ext_fmt || '—'}/h extra</div>
+          </div>
+        </div>` : ''}
+      </div>`;
+  }
+
   body.innerHTML = `
-    <div class="hero-card" style="${delay(0)}">
+    ${bannerHTML}
+    <div class="hero-card" style="${delay(temBonus ? 1 : 0)}">
       <div class="hero-accent-bar ${cls}"></div>
       <div class="hero-glow ${cls}"></div>
       <div class="hero-body">
@@ -1681,34 +2571,35 @@ function renderSaldo(d) {
         </div>
         <div class="hero-phrase">${fraseMap[cls]}</div>
         ${d.atualizado_em ? `<div class="hero-updated">Atualizado em ${d.atualizado_em}</div>` : ''}
-        ${d.multiplicador ? `<div style="margin-top:10px"><span class="mult-badge"><span>⚡</span>${d.multiplicador}× hora extra · ${d.valor_hora_ext_fmt || ''}/h</span></div>` : ''}
         <button class="hero-btn-refresh" onclick="refreshSaldo()">
           <span class="refresh-icon">↻</span> Atualizar saldo
         </button>
       </div>
     </div>
 
-    <div class="section-title" style="${delay(1)}">Resumo do período</div>
+    ${finCardHTML}
+
+    <div class="section-title" style="${delay(3)}">Resumo do período</div>
     <div class="metrics-grid">
-      <div class="metric-card accent-green" style="${delay(2)}">
+      <div class="metric-card accent-green" style="${delay(4)}">
         <div class="metric-icon">🟢</div>
         <div class="metric-label">Horas extras</div>
         <div class="metric-val green">${totalExtras > 0 ? fmtHM(totalExtras) : '—'}</div>
         <div class="metric-sub">Total creditado</div>
       </div>
-      <div class="metric-card accent-red" style="${delay(3)}">
+      <div class="metric-card accent-red" style="${delay(5)}">
         <div class="metric-icon">🔴</div>
         <div class="metric-label">Horas negativas</div>
         <div class="metric-val red">${totalDebitos > 0 ? fmtHM(totalDebitos) : '—'}</div>
         <div class="metric-sub">Total debitado</div>
       </div>
-      <div class="metric-card accent-gold" style="${delay(4)}">
+      <div class="metric-card accent-gold" style="${delay(6)}">
         <div class="metric-icon">📅</div>
         <div class="metric-label">Dias no sistema</div>
         <div class="metric-val gold">${diasTrab}</div>
         <div class="metric-sub">Registros encontrados</div>
       </div>
-      <div class="metric-card" style="${delay(5)}">
+      <div class="metric-card" style="${delay(7)}">
         <div class="metric-icon">⚖️</div>
         <div class="metric-label">Status</div>
         <div class="metric-val ${cls === 'pos' ? 'green' : cls === 'neg' ? 'red' : 'dim'}" style="font-size:22px;margin-top:4px">
@@ -1719,7 +2610,7 @@ function renderSaldo(d) {
           <div class="metric-sub" style="margin-top:0">${cls === 'pos' ? 'Saldo favorável' : cls === 'neg' ? 'Compensar horas' : 'Tudo em ordem'}</div>
         </div>
       </div>
-      <div class="metric-card wide" style="${delay(6)}">
+      <div class="metric-card wide" style="${delay(8)}">
         <div class="metric-left">
           <div class="metric-label" style="margin-bottom:6px">Última atualização</div>
           <div class="metric-val" style="font-size:20px;color:var(--mid)">${d.atualizado_em || '—'}</div>
@@ -1729,19 +2620,280 @@ function renderSaldo(d) {
           <div class="metric-sub" style="text-align:right">${d.atualizado_em ? 'Sincronizado' : 'Aguardando'}</div>
         </div>
       </div>
-      ${d.valor_hora && d.valor_hora > 0 ? `
-      <div class="metric-card wide" style="${delay(7)}">
-        <div class="metric-left">
-          <div class="metric-label" style="margin-bottom:4px">💰 Valor a receber</div>
-          <div class="metric-val gold" style="font-size:22px">${d.a_pagar_fmt || d.valor_fmt}</div>
-          <div class="metric-sub">Calculado com multiplicador ${d.multiplicador || 1.5}×</div>
+
+      <!-- ── BLOCO DE TRANSPARÊNCIA DE CÁLCULO ── -->
+      <div class="metric-card wide calc-transp" style="${delay(9)}" onclick="toggleCalcDetalhes(this)">
+        <div class="metric-left" style="flex:1">
+          <div class="metric-label" style="margin-bottom:4px">🧮 Como foi calculado?</div>
+          <div class="metric-sub" style="color:var(--mid)">Toque para ver os detalhes do cálculo</div>
         </div>
         <div class="metric-right">
-          <div class="metric-sub" style="text-align:right">${d.valor_hora_ext_fmt || ''}/h</div>
+          <div class="calc-toggle-arrow" id="calc-arrow">›</div>
         </div>
-      </div>` : ''}
+      </div>
+      <div class="calc-detalhes" id="calc-detalhes" style="display:none">
+        <div class="calc-linha">
+          <span class="calc-item-label">💰 Salário base</span>
+          <span class="calc-item-val">${d.valor_hora ? '' : 'N/A'}</span>
+        </div>
+        <div class="calc-linha">
+          <span class="calc-item-label">⏱ Valor da hora normal</span>
+          <span class="calc-item-val">${d.valor_hora_fmt || 'N/A'}</span>
+        </div>
+        <div class="calc-linha calc-destaque">
+          <span class="calc-item-label">⚡ Valor da hora extra (×${d.multiplicador || 1.5})</span>
+          <span class="calc-item-val" style="color:var(--gold)">${d.valor_hora_ext_fmt || 'N/A'}</span>
+        </div>
+        <div class="calc-separador"></div>
+        <div class="calc-linha">
+          <span class="calc-item-label">🕐 Horas extras acumuladas</span>
+          <span class="calc-item-val">${abs_h}h ${abs_m}min</span>
+        </div>
+        <div class="calc-linha calc-formula">
+          <span class="calc-item-label">📐 Fórmula aplicada</span>
+          <span class="calc-item-val" style="font-size:11px;opacity:0.7">${abs_h}h ${abs_m}m × ${d.valor_hora_ext_fmt || '?'}/h</span>
+        </div>
+        <div class="calc-linha calc-total">
+          <span class="calc-item-label">💵 Total a receber</span>
+          <span class="calc-item-val" style="color:var(--green);font-weight:700">${d.valor_fmt || 'R$ 0,00'}</span>
+        </div>
+        ${d.total_pago > 0 ? `
+        <div class="calc-linha">
+          <span class="calc-item-label">✅ Já pago</span>
+          <span class="calc-item-val" style="color:var(--mid)">− ${d.total_pago_fmt}</span>
+        </div>` : ''}
+        <div class="calc-linha calc-final">
+          <span class="calc-item-label">🏁 Saldo pendente</span>
+          <span class="calc-item-val" style="color:${d.a_pagar > 0 ? 'var(--gold)' : 'var(--mid)'};font-weight:700">${d.a_pagar_fmt || 'R$ 0,00'}</span>
+        </div>
+      </div>
     </div>
-  \`;
+  `;
+
+  // Salva dados para a tela Financeiro
+  _ultimoSaldo = d;
+
+  // Dispara notificações inteligentes
+  dispararNotificacoes(d);
+
+  // Puxa notificações do servidor (se logado com token)
+  _pollNotificacoesServidor();
+}
+
+function toggleCalcDetalhes(card) {
+  const det   = document.getElementById('calc-detalhes');
+  const arrow = document.getElementById('calc-arrow');
+  if (!det) return;
+  const aberto = det.style.display !== 'none';
+  det.style.display = aberto ? 'none' : 'block';
+  if (arrow) arrow.style.transform = aberto ? '' : 'rotate(90deg)';
+  if (navigator.vibrate) navigator.vibrate(4);
+}
+
+// ── Polling leve de notificações do servidor ─────────────────
+let _pollNotifTimer = null;
+let _serverNotifVistas = new Set(JSON.parse(localStorage.getItem('bh_notif_server_ids') || '[]'));
+
+async function _pollNotificacoesServidor() {
+  try {
+    // Endpoint sem token — usa saldo-por-nome que já tem o func_id
+    const res = await fetch(API_BASE + '/api/saldo-por-nome/' + encodeURIComponent(_nomeAtual));
+    if (!res.ok) return;
+    const d = await res.json();
+    const fid = d.id;
+    if (!fid) return;
+
+    // Busca notificações via endpoint simples (sem auth — usa pin implícito pelo nome)
+    const r2 = await fetch(API_BASE + '/api/notif-publica/' + fid);
+    if (!r2.ok) return;
+    const data = await r2.json();
+    const notifs = data.notificacoes || [];
+
+    notifs.forEach(n => {
+      if (!_serverNotifVistas.has(n.id)) {
+        _serverNotifVistas.add(n.id);
+        _adicionarNotif(n.tipo || 'info', n.icone || '🔔', n.titulo, n.mensagem || '');
+        setTimeout(() => {
+          toastRico({ icone: n.icone || '🔔', titulo: n.titulo, desc: n.mensagem, tipo: n.tipo || 'neutral', dur: 5000 });
+          if (navigator.vibrate) navigator.vibrate([30, 50, 30]);
+        }, 1200);
+      }
+    });
+
+    // Persiste IDs vistos
+    const arr = [..._serverNotifVistas].slice(-200);
+    localStorage.setItem('bh_notif_server_ids', JSON.stringify(arr));
+  } catch(e) {}
+}
+
+// Polling automático a cada 3 minutos quando o app está aberto
+setInterval(() => { if (_nomeAtual) _pollNotificacoesServidor(); }, 3 * 60 * 1000);
+
+// ═══════════════════════════════════════════════
+// TIMER DO BANNER DE HORA BONIFICADA
+// ═══════════════════════════════════════════════
+let _bonusData      = null;
+let _bonusTimerRef  = null;
+let _bonusStartTs   = null;
+
+function startBonusTimer() {
+  stopBonusTimer();
+  _bonusStartTs = Date.now();
+  _bonusTimerRef = setInterval(_tickBonusTimer, 1000);
+  _tickBonusTimer(); // imediato
+}
+
+function stopBonusTimer() {
+  if (_bonusTimerRef) { clearInterval(_bonusTimerRef); _bonusTimerRef = null; }
+}
+
+function _tickBonusTimer() {
+  const elH = document.getElementById('btd-h');
+  const elM = document.getElementById('btd-m');
+  const elS = document.getElementById('btd-s');
+  if (!elH) { stopBonusTimer(); return; }
+
+  const elapsed = Math.floor((Date.now() - _bonusStartTs) / 1000);
+  const h = Math.floor(elapsed / 3600);
+  const m = Math.floor((elapsed % 3600) / 60);
+  const s = elapsed % 60;
+
+  const fmt = (n) => String(n).padStart(2, '0');
+
+  [elH, elM, elS].forEach(el => {
+    el.classList.add('tick');
+    setTimeout(() => el.classList.remove('tick'), 120);
+  });
+  elH.textContent = fmt(h);
+  elM.textContent = fmt(m);
+  elS.textContent = fmt(s);
+}
+
+
+// ═══════════════════════════════════════════════
+// TELA FINANCEIRO
+// ═══════════════════════════════════════════════
+let _ultimoSaldo = null;
+
+function irParaFinanceiro() {
+  if (navigator.vibrate) navigator.vibrate(4);
+  document.getElementById('historico').classList.remove('active');
+  document.getElementById('financeiro').classList.add('active');
+  setNavTab('financeiro');
+  renderFinanceiro();
+}
+
+function setNavTab(aba) {
+  document.getElementById('nav-resumo').classList.toggle('active', aba === 'resumo');
+  document.getElementById('nav-historico').classList.toggle('active', aba === 'historico');
+  const navFin = document.getElementById('nav-financeiro');
+  if (navFin) navFin.classList.toggle('active', aba === 'financeiro');
+  const navAdmin = document.getElementById('nav-admin');
+  if (navAdmin) navAdmin.classList.toggle('active', aba === 'admin');
+}
+
+function renderFinanceiro() {
+  const scroll = document.getElementById('fin-scroll');
+  const d = _ultimoSaldo;
+
+  if (!d) {
+    scroll.innerHTML = '<div class="spinner"></div>';
+    carregarSaldo().then(() => renderFinanceiro());
+    return;
+  }
+
+  if (!d.valor_hora || d.valor_hora === 0) {
+    scroll.innerHTML = `
+      <div class="fin-no-salary">
+        <div class="fin-no-salary-icon">🏦</div>
+        <div class="fin-no-salary-title">Salário não configurado</div>
+        <div class="fin-no-salary-desc">Para ver o resumo financeiro, o administrador precisa configurar seu salário no sistema.</div>
+      </div>`;
+    return;
+  }
+
+  const totalAReceber = d.valor_a_receber || 0;
+  const totalPago     = d.total_pago || 0;
+  const aPagar        = d.a_pagar || 0;
+  const pct           = totalAReceber > 0 ? Math.min(100, Math.round((totalPago / totalAReceber) * 100)) : 0;
+  const temBonus      = d.multiplicador && d.multiplicador > 1;
+
+  // Cálculo de horas
+  const saldo_h = d.saldo_horas || 0;
+  const saldo_m = d.saldo_mins  || 0;
+  const saldo_total_min = (saldo_h * 60) + saldo_m;
+  const vh  = d.valor_hora      || 0;
+  const vhe = d.valor_hora * (d.multiplicador || 1.5);
+
+  scroll.innerHTML = `
+    <div class="fin-summary-hero">
+      <div class="fin-summary-label">Saldo pendente a receber</div>
+      <div class="fin-summary-amount ${aPagar === 0 ? 'zero' : ''}">${aPagar > 0 ? d.a_pagar_fmt : 'R$ 0,00'}</div>
+      <div class="fin-summary-sub">${aPagar > 0 ? 'Aguardando pagamento' : 'Tudo quitado — sem pendências'}</div>
+      <div class="fin-summary-pills">
+        <div class="fin-summary-pill">
+          <div class="fin-summary-pill-val green">${d.total_pago_fmt || 'R$ 0,00'}</div>
+          <div class="fin-summary-pill-label">Pago</div>
+        </div>
+        <div class="fin-summary-pill">
+          <div class="fin-summary-pill-val">${d.valor_fmt || 'R$ 0,00'}</div>
+          <div class="fin-summary-pill-label">Total bruto</div>
+        </div>
+        <div class="fin-summary-pill">
+          <div class="fin-summary-pill-val gold">${pct}%</div>
+          <div class="fin-summary-pill-label">Quitado</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="fin-calc-card">
+      <div class="fin-calc-title">Como foi calculado</div>
+      <div class="fin-calc-row">
+        <div class="fin-calc-row-label">🕐 Horas extras acumuladas</div>
+        <div class="fin-calc-row-val">${saldo_h}h ${saldo_m}min</div>
+      </div>
+      <div class="fin-calc-row">
+        <div class="fin-calc-row-label">💵 Valor da hora normal</div>
+        <div class="fin-calc-row-val mid">${d.valor_hora_fmt || '—'}</div>
+      </div>
+      <div class="fin-calc-row">
+        <div class="fin-calc-row-label">⚡ Multiplicador aplicado</div>
+        <div class="fin-calc-row-val gold">${d.multiplicador || 1.5}×${temBonus ? ' 🔥' : ''}</div>
+      </div>
+      <div class="fin-calc-row">
+        <div class="fin-calc-row-label">💰 Valor da hora extra</div>
+        <div class="fin-calc-row-val green">${d.valor_hora_ext_fmt || '—'}/h</div>
+      </div>
+      <div class="fin-calc-row" style="border-top:1px solid rgba(255,255,255,0.07);margin-top:4px;padding-top:12px">
+        <div class="fin-calc-row-label" style="font-weight:600;color:var(--cream)">Total a receber</div>
+        <div class="fin-calc-row-val green" style="font-size:20px">${d.valor_fmt || '—'}</div>
+      </div>
+      <div class="fin-calc-formula">
+        <span>${saldo_total_min}</span> min ÷ 60 × <span>${d.valor_hora_ext_fmt || '—'}/h</span> = <span>${d.valor_fmt || '—'}</span>
+      </div>
+    </div>
+
+    <div class="fin-calc-card">
+      <div class="fin-calc-title">Situação dos pagamentos</div>
+      <div class="fin-calc-row">
+        <div class="fin-calc-row-label">✅ Já recebido</div>
+        <div class="fin-calc-row-val green">${d.total_pago_fmt || 'R$ 0,00'}</div>
+      </div>
+      <div class="fin-calc-row">
+        <div class="fin-calc-row-label">⏳ Pendente</div>
+        <div class="fin-calc-row-val gold">${d.a_pagar_fmt || 'R$ 0,00'}</div>
+      </div>
+      <div style="margin-top:14px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+          <div style="font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--lo)">Progresso de pagamento</div>
+          <div style="font-size:11px;color:var(--mid)">${pct}%</div>
+        </div>
+        <div class="fin-progress-track">
+          <div class="fin-progress-fill" style="width:${pct}%"></div>
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 
@@ -2053,6 +3205,9 @@ function resetarDispositivo() {
 
   const savedName = localStorage.getItem('bh_nome');
 
+  // Restaura badges de notificações
+  _atualizarBadgeNotif();
+
   if (savedName) {
     // Já configurado: pula direto pro saldo
     abrirSaldo(savedName);
@@ -2265,6 +3420,276 @@ async function deletarPeriodo(pid) {
   const r = await res.json();
   if (r.ok) { toast('🗑 Período removido'); carregarAdmin(); }
 }
+
+
+// ═══════════════════════════════════════════════════════════════
+// SISTEMA DE NOTIFICAÇÕES IN-APP
+// ═══════════════════════════════════════════════════════════════
+
+// ── Estrutura de uma notificação ─────────────────────────────
+// { id, tipo, icone, titulo, desc, ts, lida }
+// tipos: 'bonus' | 'saldo' | 'pagamento' | 'semanal' | 'info'
+
+const NOTIF_KEY = 'bh_notifs_v1';
+const NOTIF_SEEN_KEY = 'bh_notifs_seen_v1'; // { 'tipo:hash': 'YYYY-MM-DD' }
+
+function _notifLoad() {
+  try { return JSON.parse(localStorage.getItem(NOTIF_KEY) || '[]'); }
+  catch(e) { return []; }
+}
+
+function _notifSave(list) {
+  // Mantém só as 40 mais recentes
+  const trimmed = list.slice(-40);
+  localStorage.setItem(NOTIF_KEY, JSON.stringify(trimmed));
+}
+
+function _seenLoad() {
+  try { return JSON.parse(localStorage.getItem(NOTIF_SEEN_KEY) || '{}'); }
+  catch(e) { return {}; }
+}
+
+function _seenSave(obj) {
+  localStorage.setItem(NOTIF_SEEN_KEY, JSON.stringify(obj));
+}
+
+function _hoje() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+// Verifica se já mostrou esta notificação hoje (evita spam)
+function _jaViuHoje(tipo, hash) {
+  const seen = _seenLoad();
+  return seen[`${tipo}:${hash}`] === _hoje();
+}
+
+function _marcarVisto(tipo, hash) {
+  const seen = _seenLoad();
+  seen[`${tipo}:${hash}`] = _hoje();
+  // Limpa entradas com mais de 7 dias
+  const limite = new Date();
+  limite.setDate(limite.getDate() - 7);
+  for (const k in seen) {
+    if (seen[k] < limite.toISOString().slice(0, 10)) delete seen[k];
+  }
+  _seenSave(seen);
+}
+
+// Adiciona notificação ao histórico
+function _adicionarNotif(tipo, icone, titulo, desc) {
+  const list = _notifLoad();
+  const id   = Date.now();
+  list.push({ id, tipo, icone, titulo, desc, ts: id, lida: false });
+  _notifSave(list);
+  _atualizarBadgeNotif();
+}
+
+// Conta não lidas
+function _naoLidas() {
+  return _notifLoad().filter(n => !n.lida).length;
+}
+
+function _atualizarBadgeNotif() {
+  const cnt = _naoLidas();
+  const el  = document.getElementById('notif-count');
+  if (!el) return;
+  if (cnt > 0) {
+    el.textContent = cnt > 9 ? '9+' : cnt;
+    el.classList.add('show');
+  } else {
+    el.classList.remove('show');
+  }
+}
+
+// ── Toast rico ───────────────────────────────────────────────
+function toastRico({ icone = 'ℹ️', titulo, desc, tipo = 'neutral', dur = 4000 } = {}) {
+  const el = document.getElementById('toast');
+
+  el.innerHTML = `
+    <div class="toast-bar ${tipo}"></div>
+    <div class="toast-inner">
+      <div class="toast-icon">${icone}</div>
+      <div class="toast-content">
+        <div class="toast-title">${titulo}</div>
+        ${desc ? `<div class="toast-desc">${desc}</div>` : ''}
+      </div>
+      <div class="toast-close" onclick="fecharToast()">×</div>
+    </div>
+    <div class="toast-progress">
+      <div class="toast-progress-fill" id="toast-prog"></div>
+    </div>`;
+
+  el.classList.add('show');
+
+  // Barra de progresso
+  const prog = document.getElementById('toast-prog');
+  if (prog) {
+    prog.style.transition = 'none';
+    prog.style.transform = 'scaleX(1)';
+    requestAnimationFrame(() => {
+      prog.style.transition = `transform ${dur}ms linear`;
+      prog.style.transform = 'scaleX(0)';
+    });
+  }
+
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('show'), dur);
+}
+
+// Toast simples (mantém compatibilidade)
+function toast(msg, dur = 2800) {
+  toastRico({ titulo: msg, tipo: 'neutral', dur });
+}
+
+function fecharToast() {
+  const el = document.getElementById('toast');
+  el.classList.remove('show');
+  clearTimeout(el._t);
+}
+
+// ── Disparo automático de notificações ──────────────────────
+function dispararNotificacoes(d) {
+  if (!d) return;
+
+  // 1. HORA EXTRA BONIFICADA ─────────────────────────────────
+  if (d.multiplicador && d.multiplicador > 1) {
+    const hash = String(d.multiplicador);
+    if (!_jaViuHoje('bonus', hash)) {
+      const label = d.multiplicador === 2 ? 'Dobrada' :
+                    d.multiplicador === 3 ? 'Triplicada' :
+                    `${d.multiplicador}× Ativa`;
+      const titulo = `🔥 Hora Extra ${label}!`;
+      const desc   = `Cada hora extra vale ${d.multiplicador}× agora. ${d.valor_hora_ext_fmt ? `(${d.valor_hora_ext_fmt}/h)` : ''}`;
+
+      _adicionarNotif('bonus', '🔥', titulo, desc);
+      _marcarVisto('bonus', hash);
+
+      // Toast com delay para não sobrepor o welcome
+      setTimeout(() => {
+        toastRico({ icone: '🔥', titulo, desc, tipo: 'bonus', dur: 5500 });
+        if (navigator.vibrate) navigator.vibrate([40, 60, 40]);
+        // Badge amarelo no tab Resumo
+        const badge = document.getElementById('nav-badge-resumo');
+        if (badge) badge.classList.add('show');
+      }, 1800);
+    }
+  }
+
+  // 2. SALDO POSITIVO EXPRESSIVO (> 5h) ────────────────────
+  if (d.saldo_positivo && d.saldo_min >= 300) {
+    const hash = Math.floor(d.saldo_min / 60) + 'h';
+    if (!_jaViuHoje('saldo_pos', hash)) {
+      const h = d.saldo_horas, m = d.saldo_mins;
+      const titulo = `✅ Saldo positivo: +${h}h ${m > 0 ? m + 'min' : ''}`;
+      const desc   = d.a_pagar && d.a_pagar > 0
+        ? `${d.a_pagar_fmt} a receber em horas extras.`
+        : 'Continue assim!';
+      _adicionarNotif('saldo', '✅', titulo, desc);
+      _marcarVisto('saldo_pos', hash);
+    }
+  }
+
+  // 3. SALDO FINANCEIRO PENDENTE ───────────────────────────
+  if (d.a_pagar && d.a_pagar > 0 && d.valor_hora > 0) {
+    const hash = 'pend_' + Math.round(d.a_pagar / 10) * 10;
+    if (!_jaViuHoje('fin_pend', hash)) {
+      const titulo = `💰 ${d.a_pagar_fmt} pendente`;
+      const desc   = 'Você tem horas extras ainda não pagas.';
+      _adicionarNotif('pagamento', '💰', titulo, desc);
+      _marcarVisto('fin_pend', hash);
+      // Badge verde no tab Financeiro
+      const badge = document.getElementById('nav-badge-fin');
+      if (badge) badge.classList.add('show');
+    }
+  } else {
+    // Remove badge se não há pendência
+    const badge = document.getElementById('nav-badge-fin');
+    if (badge) badge.classList.remove('show');
+  }
+
+  // 4. FECHAMENTO SEMANAL (sexta-feira) ─────────────────────
+  const diaSemana = new Date().getDay(); // 5 = sexta
+  if (diaSemana === 5) {
+    if (!_jaViuHoje('semanal', 'sexta')) {
+      const cls = d.saldo_positivo ? 'positivo' : d.saldo_min === 0 ? 'zerado' : 'negativo';
+      const emoji = cls === 'positivo' ? '📊' : cls === 'zerado' ? '⚖️' : '⚠️';
+      const titulo = `${emoji} Fechamento semanal`;
+      const saldo = `Saldo: ${d.saldo_positivo ? '+' : d.saldo_min > 0 ? '−' : ''}${d.saldo_horas}h ${d.saldo_mins}min`;
+      _adicionarNotif('semanal', emoji, titulo, saldo);
+      _marcarVisto('semanal', 'sexta');
+      setTimeout(() => {
+        toastRico({ icone: emoji, titulo, desc: saldo, tipo: 'blue', dur: 4500 });
+      }, d.multiplicador > 1 ? 7000 : 2200);
+    }
+  }
+
+  // Atualiza badge do sino
+  _atualizarBadgeNotif();
+}
+
+// ── Centro de Notificações (sheet) ───────────────────────────
+function abrirNotificacoes() {
+  if (navigator.vibrate) navigator.vibrate(4);
+  const overlay = document.getElementById('notif-overlay');
+  overlay.classList.add('show');
+  renderListaNotificacoes();
+  // Marca todas como lidas
+  setTimeout(() => {
+    const list = _notifLoad().map(n => ({ ...n, lida: true }));
+    _notifSave(list);
+    _atualizarBadgeNotif();
+  }, 600);
+  // Fecha ao clicar fora
+  overlay.onclick = (e) => { if (e.target === overlay) fecharNotificacoes(); };
+}
+
+function fecharNotificacoes() {
+  document.getElementById('notif-overlay').classList.remove('show');
+}
+
+function limparNotificacoes() {
+  _notifSave([]);
+  _atualizarBadgeNotif();
+  renderListaNotificacoes();
+  // Remove badges de nav
+  document.querySelectorAll('.nav-badge').forEach(b => b.classList.remove('show'));
+}
+
+function renderListaNotificacoes() {
+  const list   = _notifLoad().slice().reverse(); // mais recentes primeiro
+  const el     = document.getElementById('notif-list');
+  if (!el) return;
+
+  if (list.length === 0) {
+    el.innerHTML = `
+      <div class="notif-empty">
+        <div class="notif-empty-icon">🔔</div>
+        Nenhuma notificação ainda.<br>
+        <span style="font-size:11px;opacity:0.6">Elas aparecem ao atualizar seu saldo.</span>
+      </div>`;
+    return;
+  }
+
+  const relTime = (ts) => {
+    const diff = Date.now() - ts;
+    if (diff < 60000) return 'Agora';
+    if (diff < 3600000) return Math.floor(diff/60000) + 'min atrás';
+    if (diff < 86400000) return Math.floor(diff/3600000) + 'h atrás';
+    return new Date(ts).toLocaleDateString('pt-BR', { day:'2-digit', month:'short' });
+  };
+
+  el.innerHTML = list.map(n => `
+    <div class="notif-item ${n.lida ? '' : 'unread'}">
+      <div class="notif-item-icon">${n.icone}</div>
+      <div class="notif-item-body">
+        <div class="notif-item-title">${n.titulo}</div>
+        ${n.desc ? `<div class="notif-item-desc">${n.desc}</div>` : ''}
+        <div class="notif-item-time">${relTime(n.ts)}</div>
+      </div>
+      ${!n.lida ? '<div class="notif-unread-dot"></div>' : ''}
+    </div>`).join('');
+}
+
 </script>
 </body>
 </html>
