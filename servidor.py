@@ -1004,15 +1004,22 @@ def api_admin_sincronizar():
             saldo_min = int(func.get("saldo_min", 0))
             pin       = func.get("pin") or None
             movs      = func.get("movimentos", [])
+            salario   = float(func.get("salario", 0) or 0)
+            tipo_pag  = func.get("tipo_pag", "mes") or "mes"
+            jornada_h = float(func.get("jornada_h", 8) or 8)
             if not nome:
                 continue
 
-            # ── Upsert funcionário ──────────────────────────────────────────
+            # ── Upsert funcionário (inclui salário, tipo_pag e jornada) ────
             _run(conn,
                 "INSERT INTO funcionarios(nome,pin,salario,tipo_pag,jornada_h,criado_em,ativo)"
-                " VALUES(?,?,0,'mes',8,?,1)"
-                " ON CONFLICT(nome) DO UPDATE SET pin=excluded.pin",
-                (nome, pin, now))
+                " VALUES(?,?,?,?,?,?,1)"
+                " ON CONFLICT(nome) DO UPDATE SET"
+                " pin=excluded.pin,"
+                " salario=excluded.salario,"
+                " tipo_pag=excluded.tipo_pag,"
+                " jornada_h=excluded.jornada_h",
+                (nome, pin, salario, tipo_pag, jornada_h, now))
 
             cur = _run(conn, "SELECT id FROM funcionarios WHERE nome=?", (nome,))
             row = _d(cur.fetchone())
