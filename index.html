@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#0D0F14">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Meu Banco">
+  <link rel="manifest" href="/manifest.json">
+  <title>Banco de Horas</title>
+  <style>
+    /* ── Reset & Base ─────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0D0F14;
+      --bg2:      #13161E;
+      --card:     #1A1E2A;
+      --border:   #1E2235;
+      --accent:   #00C2FF;
+      --green:    #00E5A0;
+      --red:      #FF4D6A;
+      --yellow:   #FFB830;
+      --purple:   #AA88FF;
+      --hi:       #EAEDF5;
+      --mid:      #8A90A8;
+      --lo:       #4A5068;
+      --input:    #0F1219;
+      --safe-top: env(safe-area-inset-top, 0px);
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--hi);
+      font-family: 'Segoe UI', 'SF Pro Display', system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      overflow: hidden;
+    }
+
+    /* ── App Shell ────────────────────────────────────── */
+    #app {
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Screens ──────────────────────────────────────── */
+    .screen {
+      display: none;
+      flex-direction: column;
+      flex: 1;
+      overflow: hidden;
+    }
+    .screen.active { display: flex; }
+
+    /* ══════════════════════════════════════════════════
+       TELA DE LOGIN
+    ══════════════════════════════════════════════════ */
+    #login-screen {
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: var(--bg);
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Fundo decorativo */
+    #login-screen::before {
+      content: '';
+      position: absolute;
+      top: -120px; left: 50%; transform: translateX(-50%);
+      width: 500px; height: 500px;
+      background: radial-gradient(circle, rgba(0,194,255,0.08) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    #login-screen::after {
+      content: '';
+      position: absolute;
+      bottom: -80px; left: 50%; transform: translateX(-50%);
+      width: 400px; height: 400px;
+      background: radial-gradient(circle, rgba(0,229,160,0.05) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .login-logo {
+      width: 72px; height: 72px;
+      background: linear-gradient(135deg, var(--accent), var(--green));
+      border-radius: 22px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 32px;
+      margin-bottom: 24px;
+      box-shadow: 0 8px 32px rgba(0,194,255,0.25);
+      animation: logo-in 0.6s cubic-bezier(0.34,1.56,0.64,1) both;
+    }
+
+    @keyframes logo-in {
+      from { opacity: 0; transform: scale(0.5) translateY(20px); }
+      to   { opacity: 1; transform: scale(1) translateY(0); }
+    }
+
+    .login-title {
+      font-size: 26px; font-weight: 700;
+      color: var(--hi);
+      margin-bottom: 6px;
+      animation: fade-up 0.5s 0.1s ease both;
+    }
+    .login-sub {
+      font-size: 14px; color: var(--mid);
+      margin-bottom: 40px;
+      animation: fade-up 0.5s 0.15s ease both;
+    }
+    @keyframes fade-up {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .login-card {
+      width: 100%; max-width: 340px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 28px 24px;
+      animation: fade-up 0.5s 0.2s ease both;
+    }
+
+    .field-label {
+      font-size: 11px; font-weight: 600;
+      letter-spacing: 0.08em;
+      color: var(--mid);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    /* PIN dots */
+    .pin-display {
+      display: flex; gap: 14px; justify-content: center;
+      margin-bottom: 24px;
+    }
+    .pin-dot {
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      background: var(--border);
+      border: 2px solid var(--lo);
+      transition: all 0.15s ease;
+    }
+    .pin-dot.filled {
+      background: var(--accent);
+      border-color: var(--accent);
+      box-shadow: 0 0 10px rgba(0,194,255,0.5);
+      transform: scale(1.1);
+    }
+
+    /* Teclado numérico */
+    .keypad {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+    .key {
+      background: var(--input);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      height: 58px;
+      font-size: 22px; font-weight: 600;
+      color: var(--hi);
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      transition: all 0.1s ease;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .key:active, .key.pressed {
+      background: var(--border);
+      transform: scale(0.94);
+    }
+    .key.del { font-size: 18px; color: var(--mid); }
+    .key.zero { grid-column: 2; }
+    .key.enter {
+      background: linear-gradient(135deg, var(--accent), #0099cc);
+      border-color: transparent;
+      color: var(--bg);
+      font-size: 18px;
+    }
+    .key.enter:active { opacity: 0.85; }
+
+    .login-erro {
+      margin-top: 16px;
+      padding: 10px 14px;
+      background: rgba(255,77,106,0.12);
+      border: 1px solid rgba(255,77,106,0.3);
+      border-radius: 10px;
+      font-size: 13px; color: var(--red);
+      text-align: center;
+      display: none;
+      animation: shake 0.4s ease;
+    }
+    .login-erro.show { display: block; }
+    @keyframes shake {
+      0%,100% { transform: translateX(0); }
+      25%      { transform: translateX(-6px); }
+      75%      { transform: translateX(6px); }
+    }
+
+    /* ══════════════════════════════════════════════════
+       TELA PRINCIPAL (saldo)
+    ══════════════════════════════════════════════════ */
+    #main-screen {
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    /* Top bar */
+    .topbar {
+      display: flex; align-items: center;
+      padding: 16px 20px 12px;
+      padding-top: calc(16px + var(--safe-top));
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; z-index: 10;
+    }
+    .topbar-logo {
+      width: 32px; height: 32px;
+      background: linear-gradient(135deg, var(--accent), var(--green));
+      border-radius: 9px;
+      font-size: 16px;
+      display: flex; align-items: center; justify-content: center;
+      margin-right: 10px;
+    }
+    .topbar-title { font-size: 15px; font-weight: 700; color: var(--hi); }
+    .topbar-sub   { font-size: 11px; color: var(--mid); }
+    .topbar-right { margin-left: auto; }
+
+    .btn-logout {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--mid);
+      font-size: 12px;
+      padding: 6px 12px;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .btn-logout:active { background: var(--border); }
+
+    /* Conteúdo principal */
+    .main-content {
+      padding: 20px 16px 32px;
+      display: flex; flex-direction: column; gap: 16px;
+    }
+
+    /* Card de saldo grande */
+    .saldo-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      overflow: hidden;
+    }
+    .saldo-bar {
+      height: 4px;
+      background: var(--accent);
+      transition: background 0.4s ease;
+    }
+    .saldo-bar.positivo { background: linear-gradient(90deg, var(--green), var(--accent)); }
+    .saldo-bar.negativo { background: linear-gradient(90deg, var(--red), #cc2244); }
+
+    .saldo-inner {
+      padding: 24px 22px;
+    }
+    .saldo-label {
+      font-size: 11px; font-weight: 600;
+      letter-spacing: 0.08em;
+      color: var(--mid); text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .saldo-valor {
+      font-size: 52px; font-weight: 800;
+      line-height: 1;
+      transition: color 0.4s ease;
+      letter-spacing: -2px;
+    }
+    .saldo-valor.positivo { color: var(--green); }
+    .saldo-valor.negativo { color: var(--red); }
+    .saldo-valor.zero     { color: var(--mid); }
+    .saldo-desc {
+      margin-top: 8px;
+      font-size: 13px; color: var(--mid);
+    }
+    .saldo-atualizado {
+      margin-top: 4px;
+      font-size: 11px; color: var(--lo);
+    }
+
+    /* Mini cards de info */
+    .info-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .info-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px 14px;
+    }
+    .info-card-label {
+      font-size: 10px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.07em;
+      color: var(--lo); margin-bottom: 6px;
+    }
+    .info-card-val {
+      font-size: 22px; font-weight: 700;
+    }
+    .info-card-val.h { color: var(--accent); }
+    .info-card-val.m { color: var(--purple); }
+
+    /* Seção histórico */
+    .section-title {
+      font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--mid);
+      padding: 0 2px;
+    }
+
+    .historico-list {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+    .mov-item {
+      display: flex; align-items: center;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      gap: 12px;
+      animation: fade-in 0.3s ease both;
+    }
+    .mov-item:last-child { border-bottom: none; }
+    @keyframes fade-in {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .mov-icon {
+      width: 36px; height: 36px;
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px; flex-shrink: 0;
+    }
+    .mov-icon.cred { background: rgba(0,229,160,0.12); }
+    .mov-icon.deb  { background: rgba(255,183,48,0.12); }
+
+    .mov-body { flex: 1; min-width: 0; }
+    .mov-desc {
+      font-size: 13px; color: var(--hi);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .mov-data { font-size: 11px; color: var(--lo); margin-top: 2px; }
+
+    .mov-valor {
+      font-size: 15px; font-weight: 700; flex-shrink: 0;
+    }
+    .mov-valor.cred { color: var(--green); }
+    .mov-valor.deb  { color: var(--yellow); }
+
+    .empty-state {
+      padding: 32px;
+      text-align: center;
+      color: var(--lo);
+      font-size: 14px;
+    }
+
+    /* ── Loading / spinner ───────────────────────────── */
+    .spinner {
+      width: 28px; height: 28px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      margin: 32px auto;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Toast ───────────────────────────────────────── */
+    #toast {
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 20px;
+      font-size: 14px; color: var(--hi);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+      z-index: 999;
+      transition: opacity 0.3s ease, transform 0.3s ease;
+      opacity: 0; pointer-events: none;
+      white-space: nowrap;
+    }
+    #toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(-4px);
+    }
+
+    /* Botão de atualizar */
+    .btn-refresh {
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      width: 100%;
+      background: var(--input);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      color: var(--mid);
+      font-size: 13px;
+      padding: 13px;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .btn-refresh:active { background: var(--border); }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ══ TELA DE LOGIN ══════════════════════════════════ -->
+  <div id="login-screen" class="screen active">
+    <div class="login-logo">⏱</div>
+    <div class="login-title">Banco de Horas</div>
+    <div class="login-sub">Digite seu PIN para consultar seu saldo</div>
+
+    <div class="login-card">
+      <div class="field-label">Seu PIN</div>
+      <div class="pin-display" id="pin-display">
+        <div class="pin-dot" id="d0"></div>
+        <div class="pin-dot" id="d1"></div>
+        <div class="pin-dot" id="d2"></div>
+        <div class="pin-dot" id="d3"></div>
+      </div>
+
+      <div class="keypad" id="keypad">
+        <div class="key" data-n="1">1</div>
+        <div class="key" data-n="2">2</div>
+        <div class="key" data-n="3">3</div>
+        <div class="key" data-n="4">4</div>
+        <div class="key" data-n="5">5</div>
+        <div class="key" data-n="6">6</div>
+        <div class="key" data-n="7">7</div>
+        <div class="key" data-n="8">8</div>
+        <div class="key" data-n="9">9</div>
+        <div class="key del" id="key-del">⌫</div>
+        <div class="key zero" data-n="0">0</div>
+        <div class="key enter" id="key-enter">✓</div>
+      </div>
+
+      <div class="login-erro" id="login-erro">PIN inválido. Tente novamente.</div>
+    </div>
+  </div>
+
+  <!-- ══ TELA PRINCIPAL ════════════════════════════════ -->
+  <div id="main-screen" class="screen">
+    <div class="topbar">
+      <div class="topbar-logo">⏱</div>
+      <div>
+        <div class="topbar-title" id="tb-nome">—</div>
+        <div class="topbar-sub">Banco de Horas</div>
+      </div>
+      <div class="topbar-right">
+        <button class="btn-logout" id="btn-logout">Sair</button>
+      </div>
+    </div>
+
+    <div class="main-content" id="main-content">
+      <div class="spinner"></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<script>
+// ────────────────────────────────────────────────────────
+// STATE
+// ────────────────────────────────────────────────────────
+let _pin    = "";
+let _token  = localStorage.getItem("bh_token") || "";
+let _nome   = localStorage.getItem("bh_nome")  || "";
+
+// ────────────────────────────────────────────────────────
+// UTILS
+// ────────────────────────────────────────────────────────
+function toast(msg, dur = 2500) {
+  const el = document.getElementById("toast");
+  el.textContent = msg;
+  el.classList.add("show");
+  setTimeout(() => el.classList.remove("show"), dur);
+}
+
+function showScreen(id) {
+  document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
+  document.getElementById(id).classList.add("active");
+}
+
+// ────────────────────────────────────────────────────────
+// TECLADO PIN
+// ────────────────────────────────────────────────────────
+function updateDots() {
+  for (let i = 0; i < 4; i++) {
+    document.getElementById("d" + i).classList.toggle("filled", i < _pin.length);
+  }
+}
+
+document.getElementById("keypad").addEventListener("click", e => {
+  const key = e.target.closest(".key");
+  if (!key) return;
+
+  // Feedback tátil
+  if (navigator.vibrate) navigator.vibrate(10);
+
+  key.classList.add("pressed");
+  setTimeout(() => key.classList.remove("pressed"), 120);
+
+  if (key.id === "key-del") {
+    _pin = _pin.slice(0, -1);
+    updateDots();
+    hideErro();
+    return;
+  }
+  if (key.id === "key-enter") {
+    if (_pin.length >= 4) doLogin();
+    return;
+  }
+  const n = key.dataset.n;
+  if (n !== undefined && _pin.length < 8) {
+    _pin += n;
+    updateDots();
+    hideErro();
+    // Auto-login com 4 dígitos (PIN padrão)
+    if (_pin.length === 4) setTimeout(doLogin, 200);
+  }
+});
+
+function hideErro() {
+  document.getElementById("login-erro").classList.remove("show");
+}
+
+// ────────────────────────────────────────────────────────
+// LOGIN
+// ────────────────────────────────────────────────────────
+async function doLogin() {
+  const pin = _pin;
+  _pin = "";
+  updateDots();
+
+  try {
+    const res  = await fetch("/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin }),
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      document.getElementById("login-erro").classList.add("show");
+      return;
+    }
+
+    _token = data.token;
+    _nome  = data.nome;
+    localStorage.setItem("bh_token", _token);
+    localStorage.setItem("bh_nome",  _nome);
+
+    document.getElementById("tb-nome").textContent = _nome;
+    showScreen("main-screen");
+    carregarSaldo();
+  } catch (err) {
+    document.getElementById("login-erro").classList.add("show");
+  }
+}
+
+// ────────────────────────────────────────────────────────
+// SALDO
+// ────────────────────────────────────────────────────────
+async function carregarSaldo() {
+  const content = document.getElementById("main-content");
+  content.innerHTML = '<div class="spinner"></div>';
+
+  try {
+    const res  = await fetch("/api/saldo", {
+      headers: { "X-Token": _token },
+    });
+
+    if (res.status === 401) {
+      logout();
+      return;
+    }
+
+    const d = await res.json();
+    renderSaldo(d);
+  } catch (err) {
+    content.innerHTML = `
+      <div class="empty-state">
+        Não foi possível carregar o saldo.<br>Verifique a conexão com a rede da empresa.
+      </div>
+      <button class="btn-refresh" onclick="carregarSaldo()">
+        ↻ Tentar novamente
+      </button>
+    `;
+  }
+}
+
+function renderSaldo(d) {
+  const content = document.getElementById("main-content");
+
+  const cls     = d.saldo_positivo ? "positivo" : (d.saldo_min === 0 ? "zero" : "negativo");
+  const barCls  = d.saldo_positivo ? "positivo" : "negativo";
+  const descTxt = d.saldo_positivo
+    ? `Você tem ${d.saldo_horas}h ${d.saldo_mins}min de horas extras acumuladas`
+    : `Saldo negativo — ${d.saldo_horas}h ${d.saldo_mins}min`;
+  const atu = d.atualizado_em
+    ? `Atualizado em ${d.atualizado_em}`
+    : "";
+
+  // Histórico HTML
+  let histHTML = "";
+  if (!d.historico || d.historico.length === 0) {
+    histHTML = `<div class="empty-state">Nenhuma movimentação ainda</div>`;
+  } else {
+    histHTML = d.historico.map((m, i) => {
+      const isCred = m.tipo === "credito";
+      const icon   = isCred ? "➕" : "➖";
+      const cls2   = isCred ? "cred" : "deb";
+      return `
+        <div class="mov-item" style="animation-delay:${i * 0.04}s">
+          <div class="mov-icon ${cls2}">${icon}</div>
+          <div class="mov-body">
+            <div class="mov-desc">${m.descricao || (isCred ? "Horas extras" : "Retirada")}</div>
+            <div class="mov-data">${m.data}</div>
+          </div>
+          <div class="mov-valor ${cls2}">${m.valor_fmt}</div>
+        </div>`;
+    }).join("");
+  }
+
+  content.innerHTML = `
+    <div class="saldo-card">
+      <div class="saldo-bar ${barCls}"></div>
+      <div class="saldo-inner">
+        <div class="saldo-label">Seu saldo acumulado</div>
+        <div class="saldo-valor ${cls}">${d.saldo_fmt}</div>
+        <div class="saldo-desc">${descTxt}</div>
+        <div class="saldo-atualizado">${atu}</div>
+      </div>
+    </div>
+
+    <div class="info-grid">
+      <div class="info-card">
+        <div class="info-card-label">Horas</div>
+        <div class="info-card-val h">${d.saldo_horas}h</div>
+      </div>
+      <div class="info-card">
+        <div class="info-card-label">Minutos</div>
+        <div class="info-card-val m">${d.saldo_mins}min</div>
+      </div>
+    </div>
+
+    <div class="section-title">Últimas movimentações</div>
+    <div class="historico-list">${histHTML}</div>
+
+    <button class="btn-refresh" onclick="carregarSaldo()">
+      ↻&nbsp; Atualizar saldo
+    </button>
+  `;
+}
+
+// ────────────────────────────────────────────────────────
+// LOGOUT
+// ────────────────────────────────────────────────────────
+async function logout() {
+  if (_token) {
+    try {
+      await fetch("/api/logout", {
+        method: "POST",
+        headers: { "X-Token": _token },
+      });
+    } catch (_) {}
+  }
+  _token = ""; _nome = "";
+  localStorage.removeItem("bh_token");
+  localStorage.removeItem("bh_nome");
+  _pin = "";
+  updateDots();
+  hideErro();
+  showScreen("login-screen");
+}
+
+document.getElementById("btn-logout").addEventListener("click", logout);
+
+// ────────────────────────────────────────────────────────
+// AUTO-LOGIN se já tem token salvo
+// ────────────────────────────────────────────────────────
+if (_token && _nome) {
+  document.getElementById("tb-nome").textContent = _nome;
+  showScreen("main-screen");
+  carregarSaldo();
+}
+
+// ────────────────────────────────────────────────────────
+// SERVICE WORKER (PWA offline)
+// ────────────────────────────────────────────────────────
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/sw.js").catch(() => {});
+}
+</script>
+</body>
+</html>
