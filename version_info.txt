@@ -1,0 +1,32 @@
+# UTF-8
+#
+# Metadados do executável (aparece em Propriedades > Detalhes no Windows)
+#
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=(5, 1, 0, 0),
+    prodvers=(5, 1, 0, 0),
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo(
+      [
+      StringTable(
+        u'040904B0',
+        [StringStruct(u'CompanyName',      u'Sistema de Ponto'),
+         StringStruct(u'FileDescription',  u'Sistema de Ponto Automático'),
+         StringStruct(u'FileVersion',      u'5.1.0.0'),
+         StringStruct(u'InternalName',     u'SistemaPonto'),
+         StringStruct(u'LegalCopyright',   u'© 2025 Sistema de Ponto'),
+         StringStruct(u'OriginalFilename', u'SistemaPonto.exe'),
+         StringStruct(u'ProductName',      u'Sistema de Ponto'),
+         StringStruct(u'ProductVersion',   u'5.1.0.0')])
+      ]),
+    VarFileInfo([VarStruct(u'Translation', [0x0409, 1200])])
+  ]
+)
