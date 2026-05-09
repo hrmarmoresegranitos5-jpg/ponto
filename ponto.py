@@ -5,7 +5,8 @@
 ║  Etapa 2 · Importação CSV / TXT / XLS / XLSX                    ║
 ║  Etapa 3 · Cálculo automático de jornada, extras e saldo        ║
 ║  Etapa 4 · Banco de Horas acumulado + retiradas                 ║
-║  Etapa 5 · Relatórios PDF e exportação Excel                    ║
+║  Etapa 5 · Relatórios PDF e exportação Excel
+║  Etapa 4.6 · Notificações automáticas do funcionário                    ║
 ╚══════════════════════════════════════════════════════════════════╝
 Requisitos : Python 3.8+  (tkinter incluso no Windows)
 Opcionais  : pip install openpyxl xlrd   (.xlsx/.xls)
@@ -40,11 +41,19 @@ try:
 except ImportError:
     _RELATORIOS_OK = False
 
+# ── Módulo de notificações (Etapa 4.6) — importação opcional ─────────────────
+try:
+    from notificacoes import (GerenciadorNotif, BotaoSino, ToastInterno,
+                               TipoNotif, CentralNotificacoes)
+    _NOTIF_OK = True
+except ImportError:
+    _NOTIF_OK = False
+
 # ──────────────────────────────────────────────────────────────────────────────
 # GLOBAIS
 # ──────────────────────────────────────────────────────────────────────────────
 APP_TITLE   = "Sistema de Ponto"
-APP_VERSION = "v5.0"
+APP_VERSION = "v5.1"
 DB_FILE     = "ponto.db"
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ponto_config.ini")
 
@@ -435,34 +444,48 @@ class RelogioPontoParser:
         return [], ["Formato não reconhecido. Use RegistroPresença, RelatórioAnormal ou RelatórioPresença."]
 
     def _xls_para_xlsx(self, fp):
-        """Converte .xls → .xlsx via LibreOffice."""
-        import subprocess, tempfile
-        out = tempfile.mkdtemp()
+        """Le .xls com xlrd3 (puro Python, sem LibreOffice) e salva como .xlsx."""
+        import tempfile, subprocess, sys
         try:
-            script = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                  '..', 'skills', 'public', 'pptx', 'scripts', 'office', 'soffice.py')
-            # Tenta o script do skill
-            if not os.path.exists(script):
-                script = '/mnt/skills/public/pptx/scripts/office/soffice.py'
-            r = subprocess.run(
-                ['python3', script, '--convert-to', 'xlsx', '--outdir', out, fp],
-                capture_output=True, text=True, timeout=40)
-            base = os.path.splitext(os.path.basename(fp))[0]
-            out_file = os.path.join(out, base + '.xlsx')
-            if os.path.exists(out_file): return out_file
-        except Exception:
-            pass
-        # Fallback: tenta soffice diretamente
+            import xlrd3 as xlrd
+        except ImportError:
+            try:
+                subprocess.run([sys.executable, "-m", "pip", "install", "xlrd3"],
+                               capture_output=True, timeout=60)
+                import xlrd3 as xlrd
+            except Exception:
+                return None
         try:
-            subprocess.run(
-                ['soffice', '--headless', '--convert-to', 'xlsx', '--outdir', out, fp],
-                capture_output=True, timeout=40)
-            base = os.path.splitext(os.path.basename(fp))[0]
-            out_file = os.path.join(out, base + '.xlsx')
-            if os.path.exists(out_file): return out_file
+            from openpyxl import Workbook
+            import datetime as _dt
+            wb_in  = xlrd.open_workbook(fp)
+            wb_out = Workbook()
+            wb_out.remove(wb_out.active)
+            for sheet_idx in range(wb_in.nsheets):
+                ws_in  = wb_in.sheet_by_index(sheet_idx)
+                ws_out = wb_out.create_sheet(title=ws_in.name)
+                for row_idx in range(ws_in.nrows):
+                    for col_idx in range(ws_in.ncols):
+                        cell = ws_in.cell(row_idx, col_idx)
+                        val  = cell.value
+                        if cell.ctype == 3:
+                            try:
+                                tup = xlrd.xldate_as_tuple(val, wb_in.datemode)
+                                if tup[0] == 0:
+                                    val = _dt.time(tup[3], tup[4], tup[5])
+                                else:
+                                    val = _dt.datetime(*tup)
+                            except Exception:
+                                pass
+                        elif cell.ctype == 2 and val == int(val):
+                            val = int(val)
+                        ws_out.cell(row=row_idx + 1, column=col_idx + 1, value=val)
+            out_path = os.path.join(tempfile.mkdtemp(),
+                                    os.path.splitext(os.path.basename(fp))[0] + ".xlsx")
+            wb_out.save(out_path)
+            return out_path
         except Exception:
-            pass
-        return None
+            return None
 
     # ── Formato 1: RegistroPresença ──────────────────────────────────────────
     # Cabeçalho a cada bloco de 3 linhas:
@@ -714,6 +737,11 @@ class Database:
         self.conn.row_factory = sqlite3.Row
         self._migrate()
         self._seed()
+        # ── Gerenciador de notificações (Etapa 4.6) ───────────────────────────
+        if _NOTIF_OK:
+            self.notif = GerenciadorNotif(self.conn)
+        else:
+            self.notif = None
 
     def _migrate(self):
         self.conn.executescript("""
@@ -753,6 +781,16 @@ class Database:
             minutos INTEGER NOT NULL,
             descricao TEXT,
             referencia TEXT,
+            criado_em TEXT NOT NULL,
+            FOREIGN KEY (funcionario_id) REFERENCES funcionarios(id)
+        );
+        CREATE TABLE IF NOT EXISTS pagamentos_horas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            funcionario_id INTEGER NOT NULL,
+            minutos_pagos INTEGER NOT NULL,
+            valor_pago REAL NOT NULL,
+            tipo TEXT NOT NULL,
+            descricao TEXT,
             criado_em TEXT NOT NULL,
             FOREIGN KEY (funcionario_id) REFERENCES funcionarios(id)
         );
@@ -891,12 +929,75 @@ class Database:
     def get_banco_horas(self):
         """Retorna saldo atual de todos os funcionários."""
         return self.conn.execute("""
-            SELECT f.id, f.nome, f.pin, COALESCE(b.saldo_min, 0) as saldo_min, b.atualizado_em
+            SELECT f.id, f.nome, f.pin, f.salario, f.tipo_pag, f.jornada_h,
+                   COALESCE(b.saldo_min, 0) as saldo_min, b.atualizado_em
             FROM funcionarios f
             LEFT JOIN banco_horas b ON b.funcionario_id = f.id
             WHERE f.ativo = 1
             ORDER BY f.nome
         """).fetchall()
+
+    def get_folha_pagamento(self):
+        """Retorna funcionários com saldo > 0 e valor monetário calculado."""
+        rows = self.conn.execute("""
+            SELECT f.id, f.nome, f.salario, f.tipo_pag, f.jornada_h,
+                   COALESCE(b.saldo_min, 0) as saldo_min, b.atualizado_em
+            FROM funcionarios f
+            LEFT JOIN banco_horas b ON b.funcionario_id = f.id
+            WHERE f.ativo = 1
+            ORDER BY f.nome
+        """).fetchall()
+        result = []
+        for r in rows:
+            sal   = r["salario"]
+            tipo  = r["tipo_pag"]
+            jorn  = r["jornada_h"]
+            # valor por hora: salário / horas do período
+            if tipo == "semana":
+                horas_periodo = jorn * 5
+            else:
+                horas_periodo = jorn * 5 * 4.333
+            valor_hora = sal / horas_periodo if horas_periodo else 0
+            saldo_h    = r["saldo_min"] / 60.0
+            valor_dev  = saldo_h * valor_hora
+            # total já pago
+            pago_row = self.conn.execute(
+                "SELECT COALESCE(SUM(valor_pago),0) as total FROM pagamentos_horas WHERE funcionario_id=?",
+                (r["id"],)).fetchone()
+            total_pago = pago_row["total"] if pago_row else 0
+            result.append({
+                "id":          r["id"],
+                "nome":        r["nome"],
+                "salario":     sal,
+                "tipo_pag":    tipo,
+                "jornada_h":   jorn,
+                "saldo_min":   r["saldo_min"],
+                "valor_hora":  valor_hora,
+                "valor_devido": valor_dev,
+                "total_pago":  total_pago,
+                "a_pagar":     max(0, valor_dev - total_pago),
+                "atualizado_em": r["atualizado_em"] or "",
+            })
+        return result
+
+    def registrar_pagamento_horas(self, func_id, minutos_pagos, valor_pago, tipo, descricao):
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.conn.execute(
+            "INSERT INTO pagamentos_horas(funcionario_id,minutos_pagos,valor_pago,tipo,descricao,criado_em)"
+            " VALUES(?,?,?,?,?,?)",
+            (func_id, minutos_pagos, valor_pago, tipo, descricao, now))
+        self.conn.commit()
+        # ── Notificação automática ────────────────────────────────────────────
+        if self.notif:
+            func = self.get_funcionario(func_id)
+            nome = func["nome"].capitalize() if func else "Funcionário"
+            brl = f"R$ {valor_pago:,.2f}".replace(",","X").replace(".",",").replace("X",".")
+            self.notif.pagamento_lancado(nome, func_id, brl)
+
+    def get_historico_pagamentos(self, func_id):
+        return self.conn.execute(
+            "SELECT * FROM pagamentos_horas WHERE funcionario_id=? ORDER BY criado_em DESC LIMIT 30",
+            (func_id,)).fetchall()
 
     def get_banco_horas_func(self, func_id):
         """Retorna saldo + histórico de movimentos de um funcionário."""
@@ -923,6 +1024,40 @@ class Database:
             "INSERT INTO banco_horas_mov(funcionario_id,tipo,minutos,descricao,referencia,criado_em) VALUES(?,?,?,?,?,?)",
             (func_id, "credito", minutos, descricao, referencia, now))
         self.conn.commit()
+        # ── Notificação automática ────────────────────────────────────────────
+        if self.notif and minutos != 0:
+            func = self.get_funcionario(func_id)
+            nome = func["nome"].capitalize() if func else "Funcionário"
+            # Saldo novo
+            saldo_row = self.conn.execute(
+                "SELECT saldo_min FROM banco_horas WHERE funcionario_id=?",
+                (func_id,)).fetchone()
+            saldo_min = saldo_row["saldo_min"] if saldo_row else 0
+            if minutos > 0:
+                h, m = divmod(abs(minutos), 60)
+                horas_str = f"+{h}h{m:02d}" if h else f"+{m}min"
+                self.notif.horas_extras(nome, func_id, horas_str,
+                                        referencia or "")
+            else:
+                h, m = divmod(abs(minutos), 60)
+                tempo_str = f"{h}h{m:02d}" if h else f"{m} minutos"
+                self.notif.horas_negativas(nome, func_id, tempo_str)
+            # Notificação de saldo sempre após crédito
+            if saldo_min != 0:
+                # Calcula valor
+                func_data = self.get_funcionario(func_id)
+                if func_data:
+                    sal = func_data["salario"]
+                    tipo = func_data["tipo_pag"]
+                    if tipo == "hora":
+                        valor_hora = sal
+                    elif tipo == "semana":
+                        valor_hora = sal / (func_data["jornada_h"] * 5)
+                    else:
+                        valor_hora = sal / (func_data["jornada_h"] * 22)
+                    valor = (saldo_min / 60) * valor_hora * 1.5
+                    brl = f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                    self.notif.saldo_atualizado(nome, func_id, brl)
 
     def debitar_banco_horas(self, func_id, minutos, descricao):
         """Remove minutos do banco (retirada aprovada pelo gestor)."""
@@ -1290,6 +1425,9 @@ class PageImportacao(tk.Frame):
     def _confirm(self):
         if not self._regs: return
         self.db.save_importacao(os.path.basename(self._path), self._regs, self._avisos)
+        # ── Notificação de fechamento semanal ─────────────────────────────────
+        if self.db.notif:
+            self.db.notif.fechamento_semanal()
         messagebox.showinfo("Concluído", f"{len(self._regs)} registros importados!\nRedirecionando para Cálculo de Horas.")
         self._regs = []; self._path = ""
         self.lbl_file.config(text="nenhum selecionado", fg=C["text_lo"])
@@ -2282,8 +2420,2074 @@ class PageConfiguracoes(tk.Frame):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────────
+# ETAPA 4.3 — ABA FINANCEIRO
+# ──────────────────────────────────────────────────────────────────────────────
+
+class PageFinanceiro(tk.Frame):
+    """Aba Financeiro — acompanhamento individual de horas extras em dinheiro."""
+
+    # Cores extras usadas só aqui
+    _GOLD   = "#FFD166"
+    _TEAL   = "#06D6A0"
+    _CORAL  = "#EF476F"
+    _INDIGO = "#7B5EA7"
+
+    def __init__(self, parent, db, **kw):
+        super().__init__(parent, bg=C["bg_panel"], **kw)
+        self.db = db
+        self._sel_id   = None
+        self._dados    = {}       # cache do funcionário selecionado
+        self._mult_var = tk.DoubleVar(value=1.5)   # multiplicador hora extra
+        self._build()
+        self._load_funcionarios()
+
+    # ── DB helpers (migração segura) ──────────────────────────────────────────
+    def _ensure_tables(self):
+        """Cria tabelas específicas do financeiro se ainda não existem."""
+        self.db.conn.executescript("""
+        CREATE TABLE IF NOT EXISTS financeiro_config (
+            funcionario_id INTEGER PRIMARY KEY,
+            multiplicador  REAL    NOT NULL DEFAULT 1.5,
+            FOREIGN KEY (funcionario_id) REFERENCES funcionarios(id)
+        );
+        CREATE TABLE IF NOT EXISTS financeiro_mov (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            funcionario_id INTEGER NOT NULL,
+            data           TEXT    NOT NULL,
+            tipo           TEXT    NOT NULL,
+            valor          REAL    NOT NULL,
+            observacao     TEXT,
+            criado_em      TEXT    NOT NULL,
+            FOREIGN KEY (funcionario_id) REFERENCES funcionarios(id)
+        );
+        """)
+        self.db.conn.commit()
+
+    def _get_mult(self, fid):
+        self._ensure_tables()
+        row = self.db.conn.execute(
+            "SELECT multiplicador FROM financeiro_config WHERE funcionario_id=?", (fid,)
+        ).fetchone()
+        return row[0] if row else 1.5
+
+    def _set_mult(self, fid, mult):
+        self._ensure_tables()
+        self.db.conn.execute(
+            "INSERT OR REPLACE INTO financeiro_config(funcionario_id,multiplicador) VALUES(?,?)",
+            (fid, mult))
+        self.db.conn.commit()
+
+    def _get_movimentos(self, fid):
+        self._ensure_tables()
+        return self.db.conn.execute(
+            "SELECT * FROM financeiro_mov WHERE funcionario_id=? ORDER BY data DESC, criado_em DESC",
+            (fid,)
+        ).fetchall()
+
+    def _add_movimento(self, fid, data, tipo, valor, obs):
+        self._ensure_tables()
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.db.conn.execute(
+            "INSERT INTO financeiro_mov(funcionario_id,data,tipo,valor,observacao,criado_em)"
+            " VALUES(?,?,?,?,?,?)",
+            (fid, data, tipo, valor, obs, now))
+        self.db.conn.commit()
+
+    def _del_movimento(self, mov_id):
+        self.db.conn.execute("DELETE FROM financeiro_mov WHERE id=?", (mov_id,))
+        self.db.conn.commit()
+
+    # ── Cálculo financeiro ────────────────────────────────────────────────────
+    def _calc(self, f, mult):
+        """Retorna dicionário com todos os valores financeiros do funcionário."""
+        sal   = f["salario"]
+        tipo  = f["tipo_pag"]
+        # Valor da hora conforme tipo de pagamento
+        if tipo == "semana":
+            vh = sal / 44.0
+        else:
+            vh = sal / 220.0
+        vhe = vh * mult   # valor hora extra
+
+        # Horas extras acumuladas (banco de horas)
+        saldo_min = f["saldo_min"] if "saldo_min" in f.keys() else 0
+        valor_bruto = (saldo_min / 60.0) * vhe
+
+        # Pagamentos já registrados (tabela pagamentos_horas existente)
+        row = self.db.conn.execute(
+            "SELECT COALESCE(SUM(valor_pago),0) as total FROM pagamentos_horas WHERE funcionario_id=?",
+            (f["id"],)).fetchone()
+        pago_oficial = row[0] if row else 0.0
+
+        # Adiantamentos registrados no financeiro_mov
+        movs = self._get_movimentos(f["id"])
+        total_adiant = sum(m["valor"] for m in movs if m["tipo"] == "adiantamento")
+        total_bonus  = sum(m["valor"] for m in movs if m["tipo"] == "bonus")
+
+        saldo_pendente = valor_bruto - pago_oficial - total_adiant + total_bonus
+
+        return {
+            "salario":        sal,
+            "tipo_pag":       tipo,
+            "valor_hora":     vh,
+            "valor_hora_ext": vhe,
+            "mult":           mult,
+            "saldo_min":      saldo_min,
+            "valor_bruto":    valor_bruto,
+            "pago_oficial":   pago_oficial,
+            "total_adiant":   total_adiant,
+            "total_bonus":    total_bonus,
+            "saldo_pendente": saldo_pendente,
+            "movimentos":     movs,
+        }
+
+    # ── Formatadores ──────────────────────────────────────────────────────────
+    @staticmethod
+    def _brl(v):
+        s = f"R$ {abs(v):,.2f}".replace(",","X").replace(".",",").replace("X",".")
+        return ("- " if v < 0 else "") + s
+
+    @staticmethod
+    def _hmin(m):
+        h = int(abs(m)) // 60; mn = int(abs(m)) % 60
+        return f"{h:02d}h{mn:02d}"
+
+    # ── Construção da interface ───────────────────────────────────────────────
+    def _build(self):
+        # ── Header ────────────────────────────────────────────────────────────
+        hdr = tk.Frame(self, bg=C["bg_panel"], padx=36, pady=22); hdr.pack(fill="x")
+        lh  = tk.Frame(hdr, bg=C["bg_panel"]); lh.pack(side="left", fill="x", expand=True)
+        tk.Label(lh, text="💳  Financeiro", bg=C["bg_panel"], fg=C["text_hi"],
+                 font=FONT_TITLE).pack(anchor="w")
+        tk.Label(lh, text="Acompanhamento individual · Horas extras em dinheiro",
+                 bg=C["bg_panel"], fg=C["text_mid"], font=FONT_BODY).pack(anchor="w")
+        Btn(hdr, "↻  Atualizar", self._refresh, style="outline").pack(side="right", pady=4)
+        Sep(self).pack(fill="x", padx=36)
+
+        # ── Corpo principal: sidebar esquerda + área direita ─────────────────
+        body = tk.Frame(self, bg=C["bg_panel"]); body.pack(fill="both", expand=True)
+
+        # Sidebar: lista de funcionários
+        self._build_sidebar(body)
+
+        # Área direita (conteúdo dinâmico)
+        self._right = tk.Frame(body, bg=C["bg_panel"]); self._right.pack(side="left", fill="both", expand=True)
+        self._show_placeholder()
+
+    def _build_sidebar(self, parent):
+        sb = tk.Frame(parent, bg=C["sidebar"], width=200); sb.pack(side="left", fill="y")
+        sb.pack_propagate(False)
+
+        tk.Label(sb, text="FUNCIONÁRIOS", bg=C["sidebar"], fg=C["text_lo"],
+                 font=(FONT_SMALL[0], 8, "bold")).pack(anchor="w", padx=16, pady=(16,4))
+        Sep(sb).pack(fill="x", padx=12, pady=2)
+
+        scroll_frame = tk.Frame(sb, bg=C["sidebar"]); scroll_frame.pack(fill="both", expand=True)
+        canvas = tk.Canvas(scroll_frame, bg=C["sidebar"], highlightthickness=0)
+        vsb    = ttk.Scrollbar(scroll_frame, orient="vertical", command=canvas.yview)
+        self._func_list = tk.Frame(canvas, bg=C["sidebar"])
+        self._func_list.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0,0), window=self._func_list, anchor="nw")
+        canvas.configure(yscrollcommand=vsb.set)
+        vsb.pack(side="right", fill="y"); canvas.pack(fill="both", expand=True)
+        self._func_canvas = canvas
+
+    def _load_funcionarios(self):
+        for w in self._func_list.winfo_children(): w.destroy()
+        funcs = self.db.get_banco_horas()  # já tem saldo_min
+        self._funcs = funcs
+        for f in funcs:
+            fid  = f["id"]
+            nome = f["nome"].capitalize()
+            btn_frame = tk.Frame(self._func_list, bg=C["sidebar"], cursor="hand2")
+            btn_frame.pack(fill="x")
+            dot_color = C["success"] if f["saldo_min"] > 0 else C["text_lo"]
+            tk.Label(btn_frame, text="●", bg=C["sidebar"], fg=dot_color,
+                     font=("Segoe UI",8)).pack(side="left", padx=(12,4), pady=12)
+            tk.Label(btn_frame, text=nome, bg=C["sidebar"], fg=C["text_hi"],
+                     font=FONT_BODY, anchor="w").pack(side="left", fill="x", expand=True)
+            bar = tk.Frame(btn_frame, bg=C["sidebar"], width=3); bar.pack(side="right", fill="y")
+
+            def _click(e=None, fid=fid, frame=btn_frame, b=bar):
+                self._select_func(fid, frame, b)
+
+            def _enter(e, fr=btn_frame): fr.config(bg=C["hover"])
+            def _leave(e, fr=btn_frame, fid=fid):
+                fr.config(bg=C["bg_card"] if self._sel_id == fid else C["sidebar"])
+
+            for w in btn_frame.winfo_children():
+                w.bind("<Button-1>", _click)
+                w.bind("<Enter>",    _enter)
+                w.bind("<Leave>",    _leave)
+            btn_frame.bind("<Button-1>", _click)
+            btn_frame.bind("<Enter>",    _enter)
+            btn_frame.bind("<Leave>",    _leave)
+            btn_frame._bar = bar
+
+        self._func_btns = {f["id"]: self._func_list.winfo_children()[i]
+                           for i, f in enumerate(funcs)}
+
+    def _select_func(self, fid, frame=None, bar=None):
+        # Reseta visual de todos
+        for w in self._func_list.winfo_children():
+            w.config(bg=C["sidebar"])
+            for c in w.winfo_children(): c.config(bg=C["sidebar"])
+            if hasattr(w, "_bar"): w._bar.config(bg=C["sidebar"])
+        # Destaca selecionado
+        if frame:
+            frame.config(bg=C["bg_card"])
+            for c in frame.winfo_children(): c.config(bg=C["bg_card"])
+            if bar: bar.config(bg=C["accent"])
+        self._sel_id = fid
+        f = next((x for x in self._funcs if x["id"] == fid), None)
+        if f:
+            self._render_financeiro(f)
+
+    def _show_placeholder(self):
+        for w in self._right.winfo_children(): w.destroy()
+        ph = tk.Frame(self._right, bg=C["bg_panel"]); ph.pack(expand=True)
+        tk.Label(ph, text="💳", bg=C["bg_panel"], fg=C["text_lo"],
+                 font=("Segoe UI",48)).pack(pady=8)
+        tk.Label(ph, text="Selecione um funcionário", bg=C["bg_panel"],
+                 fg=C["text_mid"], font=("Segoe UI",14)).pack()
+        tk.Label(ph, text="para ver o resumo financeiro",
+                 bg=C["bg_panel"], fg=C["text_lo"], font=FONT_BODY).pack()
+
+    # ── Renderização do painel financeiro ─────────────────────────────────────
+    def _render_financeiro(self, f):
+        for w in self._right.winfo_children(): w.destroy()
+
+        mult  = self._get_mult(f["id"])
+        dados = self._calc(f, mult)
+        self._dados = dados
+        self._cur_f  = f
+
+        # Container com scroll
+        canvas = tk.Canvas(self._right, bg=C["bg_panel"], highlightthickness=0)
+        vsb    = ttk.Scrollbar(self._right, orient="vertical", command=canvas.yview)
+        inner  = tk.Frame(canvas, bg=C["bg_panel"])
+        inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0,0), window=inner, anchor="nw")
+        canvas.configure(yscrollcommand=vsb.set)
+        vsb.pack(side="right", fill="y"); canvas.pack(fill="both", expand=True)
+        canvas.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(int(-1*(e.delta/120)), "units"))
+
+        pad = dict(padx=28, pady=6)
+
+        # ── Nome + configurações de multiplicador ─────────────────────────────
+        top = tk.Frame(inner, bg=C["bg_panel"], padx=28, pady=16); top.pack(fill="x")
+        name_f = tk.Frame(top, bg=C["bg_panel"]); name_f.pack(side="left", fill="x", expand=True)
+        tk.Label(name_f, text=f["nome"].upper(), bg=C["bg_panel"],
+                 fg=C["text_hi"], font=("Segoe UI",16,"bold")).pack(anchor="w")
+        tipo_str = "Semanal (÷ 44h)" if dados["tipo_pag"] == "semana" else "Mensal (÷ 220h)"
+        tk.Label(name_f, text=f"Tipo de pagamento: {tipo_str}",
+                 bg=C["bg_panel"], fg=C["text_mid"], font=FONT_SMALL).pack(anchor="w")
+
+        # Multiplicador configurável
+        mult_f = tk.Frame(top, bg=C["bg_card"],
+                          highlightbackground=C["border"], highlightthickness=1)
+        mult_f.pack(side="right", padx=4)
+        tk.Frame(mult_f, bg=self._GOLD, height=2).pack(fill="x")
+        mi = tk.Frame(mult_f, bg=C["bg_card"], padx=14, pady=10); mi.pack()
+        tk.Label(mi, text="Multiplicador h. extra", bg=C["bg_card"],
+                 fg=C["text_lo"], font=(FONT_SMALL[0],8,"bold")).pack(anchor="w")
+        mrow = tk.Frame(mi, bg=C["bg_card"]); mrow.pack(fill="x", pady=2)
+        self._mult_var.set(mult)
+        mult_ent = tk.Entry(mrow, textvariable=self._mult_var, width=5,
+                            bg=C["bg_input"], fg=self._GOLD, font=("Segoe UI",13,"bold"),
+                            insertbackground=self._GOLD, relief="flat",
+                            highlightbackground=C["border"], highlightthickness=1)
+        mult_ent.pack(side="left")
+        tk.Label(mrow, text="×", bg=C["bg_card"], fg=C["text_lo"],
+                 font=("Segoe UI",11)).pack(side="left", padx=4)
+        Btn(mi, "Salvar", cmd=lambda: self._salvar_mult(f["id"]),
+            style="warning").pack(anchor="e", pady=2)
+
+        Sep(inner).pack(fill="x", padx=28, pady=4)
+
+        # ── Cartões de resumo (linha 1) ───────────────────────────────────────
+        row1 = tk.Frame(inner, bg=C["bg_panel"], padx=28, pady=4); row1.pack(fill="x")
+        cards1 = [
+            ("SALÁRIO",              self._brl(dados["salario"]),        f'{"Mensal" if dados["tipo_pag"]=="mes" else "Semanal"}', C["accent"]),
+            ("VALOR DA HORA",        self._brl(dados["valor_hora"]),     f'Salário ÷ {"220h" if dados["tipo_pag"]=="mes" else "44h"}', C["purple"] if True else C["purple"]),
+            ("HORA EXTRA (×{:.2g})".format(dados["mult"]),
+                                     self._brl(dados["valor_hora_ext"]), f'Hora × {dados["mult"]}×', self._GOLD),
+        ]
+        for title, val, sub, cor in cards1:
+            cf = tk.Frame(row1, bg=C["bg_card"],
+                          highlightbackground=C["border"], highlightthickness=1)
+            cf.pack(side="left", fill="x", expand=True, padx=4)
+            tk.Frame(cf, bg=cor, height=3).pack(fill="x")
+            ci = tk.Frame(cf, bg=C["bg_card"], padx=16, pady=14); ci.pack(fill="x")
+            tk.Label(ci, text=title, bg=C["bg_card"], fg=C["text_lo"],
+                     font=(FONT_SMALL[0],8,"bold")).pack(anchor="w")
+            tk.Label(ci, text=val,   bg=C["bg_card"], fg=cor,
+                     font=("Segoe UI",20,"bold")).pack(anchor="w", pady=2)
+            tk.Label(ci, text=sub,   bg=C["bg_card"], fg=C["text_lo"],
+                     font=FONT_SMALL).pack(anchor="w")
+
+        # ── Cartões de resumo (linha 2) ───────────────────────────────────────
+        row2 = tk.Frame(inner, bg=C["bg_panel"], padx=28, pady=4); row2.pack(fill="x")
+        sinal_pend = C["success"] if dados["saldo_pendente"] >= 0 else self._CORAL
+        cards2 = [
+            ("HRS EXTRAS ACUMULADAS", self._hmin(dados["saldo_min"]),     "Banco de horas",            C["text_hi"]),
+            ("VALOR ACUMULADO",        self._brl(dados["valor_bruto"]),   "Horas × valor h. extra",    self._TEAL),
+            ("ADIANTAMENTOS",          self._brl(dados["total_adiant"]),  "Pagamentos registrados",     self._CORAL),
+            ("SALDO RESTANTE",         self._brl(dados["saldo_pendente"]),"A receber",                 sinal_pend),
+        ]
+        for title, val, sub, cor in cards2:
+            cf = tk.Frame(row2, bg=C["bg_card"],
+                          highlightbackground=C["border"], highlightthickness=1)
+            cf.pack(side="left", fill="x", expand=True, padx=4)
+            tk.Frame(cf, bg=cor, height=3).pack(fill="x")
+            ci = tk.Frame(cf, bg=C["bg_card"], padx=16, pady=14); ci.pack(fill="x")
+            tk.Label(ci, text=title, bg=C["bg_card"], fg=C["text_lo"],
+                     font=(FONT_SMALL[0],8,"bold")).pack(anchor="w")
+            tk.Label(ci, text=val,   bg=C["bg_card"], fg=cor,
+                     font=("Segoe UI",18,"bold")).pack(anchor="w", pady=2)
+            tk.Label(ci, text=sub,   bg=C["bg_card"], fg=C["text_lo"],
+                     font=FONT_SMALL).pack(anchor="w")
+
+        Sep(inner).pack(fill="x", padx=28, pady=8)
+
+        # ── Área inferior: histórico + ações ─────────────────────────────────
+        bot = tk.Frame(inner, bg=C["bg_panel"], padx=28, pady=0); bot.pack(fill="both", expand=True)
+        bot.columnconfigure(0, weight=3); bot.columnconfigure(1, weight=2)
+
+        # ── Histórico financeiro (esquerda) ───────────────────────────────────
+        hf = tk.Frame(bot, bg=C["bg_panel"]); hf.grid(row=0, column=0, sticky="nsew", padx=(0,12))
+
+        tk.Label(hf, text="HISTÓRICO FINANCEIRO", bg=C["bg_panel"],
+                 fg=C["text_mid"], font=(FONT_SMALL[0],9,"bold")).pack(anchor="w", pady=(0,6))
+
+        hist_card = tk.Frame(hf, bg=C["bg_card"],
+                              highlightbackground=C["border"], highlightthickness=1)
+        hist_card.pack(fill="both", expand=True)
+        tk.Frame(hist_card, bg=C["accent"], height=3).pack(fill="x")
+
+        hist_canvas = tk.Canvas(hist_card, bg=C["bg_card"], highlightthickness=0, height=280)
+        hscroll = ttk.Scrollbar(hist_card, orient="vertical", command=hist_canvas.yview)
+        self._hist_inner = tk.Frame(hist_canvas, bg=C["bg_card"])
+        self._hist_inner.bind("<Configure>",
+            lambda e: hist_canvas.configure(scrollregion=hist_canvas.bbox("all")))
+        hist_canvas.create_window((0,0), window=self._hist_inner, anchor="nw")
+        hist_canvas.configure(yscrollcommand=hscroll.set)
+        hscroll.pack(side="right", fill="y"); hist_canvas.pack(fill="both", expand=True)
+        self._hist_canvas_ref = hist_canvas
+
+        self._render_historico(dados["movimentos"], dados)
+
+        # ── Painel de ações (direita) ─────────────────────────────────────────
+        af = tk.Frame(bot, bg=C["bg_panel"]); af.grid(row=0, column=1, sticky="nsew")
+
+        # Registrar adiantamento
+        tk.Label(af, text="REGISTRAR MOVIMENTO", bg=C["bg_panel"],
+                 fg=C["text_mid"], font=(FONT_SMALL[0],9,"bold")).pack(anchor="w", pady=(0,6))
+
+        ac = tk.Frame(af, bg=C["bg_card"],
+                      highlightbackground=C["border"], highlightthickness=1)
+        ac.pack(fill="x")
+        tk.Frame(ac, bg=self._CORAL, height=3).pack(fill="x")
+        ai = tk.Frame(ac, bg=C["bg_card"], padx=18, pady=16); ai.pack(fill="x")
+
+        # Tipo
+        tk.Label(ai, text="Tipo:", bg=C["bg_card"], fg=C["text_mid"],
+                 font=FONT_BODY).pack(anchor="w")
+        self._tipo_mov = tk.StringVar(value="adiantamento")
+        tipo_f = tk.Frame(ai, bg=C["bg_card"]); tipo_f.pack(fill="x", pady=4)
+        for txt, val, cor in [("Adiantamento", "adiantamento", self._CORAL),
+                               ("Bônus",        "bonus",        self._TEAL)]:
+            rb = tk.Radiobutton(tipo_f, text=txt, variable=self._tipo_mov, value=val,
+                                bg=C["bg_card"], fg=C["text_hi"],
+                                selectcolor=C["bg_dark"], activebackground=C["bg_card"],
+                                activeforeground=cor, font=FONT_BODY)
+            rb.pack(side="left", padx=4)
+
+        # Data
+        tk.Label(ai, text="Data (DD/MM/AAAA):", bg=C["bg_card"],
+                 fg=C["text_mid"], font=FONT_BODY).pack(anchor="w", pady=(8,0))
+        self._ent_data = tk.Entry(ai, bg=C["bg_input"], fg=C["text_hi"], font=FONT_BODY,
+                                   insertbackground=C["accent"], relief="flat",
+                                   highlightbackground=C["border"], highlightthickness=1)
+        self._ent_data.insert(0, datetime.now().strftime("%d/%m/%Y"))
+        self._ent_data.pack(fill="x", pady=2)
+
+        # Valor
+        tk.Label(ai, text="Valor (R$):", bg=C["bg_card"],
+                 fg=C["text_mid"], font=FONT_BODY).pack(anchor="w", pady=(8,0))
+        self._ent_valor_mov = tk.Entry(ai, bg=C["bg_input"], fg=C["text_hi"], font=FONT_BODY,
+                                        insertbackground=C["accent"], relief="flat",
+                                        highlightbackground=C["border"], highlightthickness=1)
+        self._ent_valor_mov.pack(fill="x", pady=2)
+
+        # Observação
+        tk.Label(ai, text="Observação:", bg=C["bg_card"],
+                 fg=C["text_mid"], font=FONT_BODY).pack(anchor="w", pady=(8,0))
+        self._ent_obs = tk.Entry(ai, bg=C["bg_input"], fg=C["text_hi"], font=FONT_BODY,
+                                  insertbackground=C["accent"], relief="flat",
+                                  highlightbackground=C["border"], highlightthickness=1)
+        self._ent_obs.pack(fill="x", pady=2)
+
+        Btn(ai, "✓  Registrar", cmd=lambda: self._registrar_mov(f),
+            style="danger").pack(anchor="w", pady=(12,0))
+
+        # Gerar comprovante
+        Sep(af).pack(fill="x", pady=12)
+        tk.Label(af, text="COMPROVANTE", bg=C["bg_panel"],
+                 fg=C["text_mid"], font=(FONT_SMALL[0],9,"bold")).pack(anchor="w", pady=(0,6))
+
+        gc = tk.Frame(af, bg=C["bg_card"],
+                      highlightbackground=C["border"], highlightthickness=1)
+        gc.pack(fill="x")
+        tk.Frame(gc, bg=C["success"], height=3).pack(fill="x")
+        gi = tk.Frame(gc, bg=C["bg_card"], padx=18, pady=14); gi.pack(fill="x")
+
+        Btn(gi, "📄  Gerar PDF",       cmd=lambda: self._gerar_pdf(f, dados),       style="success").pack(fill="x", pady=2)
+        Btn(gi, "💬  Texto WhatsApp",   cmd=lambda: self._gerar_whatsapp(f, dados),  style="outline").pack(fill="x", pady=2)
+        Btn(gi, "📋  Resumo Completo",  cmd=lambda: self._gerar_resumo(f, dados),    style="outline").pack(fill="x", pady=2)
+
+    def _render_historico(self, movs, dados):
+        for w in self._hist_inner.winfo_children(): w.destroy()
+
+        # Linha de horas extras (banco de horas)
+        if dados["saldo_min"] > 0:
+            self._hist_linha(
+                data="Acumulado",
+                tipo="Horas extras",
+                valor=dados["valor_bruto"],
+                obs=f"{self._hmin(dados['saldo_min'])} · banco de horas",
+                cor=self._TEAL,
+                sinal="+",
+                mov_id=None,
+            )
+            Sep(self._hist_inner).pack(fill="x")
+
+        # Pagamentos da folha
+        rows_pag = self.db.conn.execute(
+            "SELECT * FROM pagamentos_horas WHERE funcionario_id=? ORDER BY criado_em DESC",
+            (self._sel_id,)).fetchall()
+        for p in rows_pag:
+            self._hist_linha(
+                data=(p["criado_em"] or "")[:10],
+                tipo="Pagamento registrado",
+                valor=p["valor_pago"],
+                obs=p["descricao"] or "",
+                cor=C["accent"],
+                sinal="-",
+                mov_id=None,
+            )
+            Sep(self._hist_inner).pack(fill="x")
+
+        # Movimentos do financeiro
+        for m in movs:
+            cor   = self._CORAL if m["tipo"] == "adiantamento" else self._TEAL
+            sinal = "-" if m["tipo"] == "adiantamento" else "+"
+            self._hist_linha(
+                data=m["data"],
+                tipo=m["tipo"].capitalize(),
+                valor=m["valor"],
+                obs=m["observacao"] or "",
+                cor=cor,
+                sinal=sinal,
+                mov_id=m["id"],
+            )
+            Sep(self._hist_inner).pack(fill="x")
+
+        if not movs and dados["saldo_min"] == 0 and not rows_pag:
+            tk.Label(self._hist_inner, text="Nenhum movimento registrado.",
+                     bg=C["bg_card"], fg=C["text_lo"], font=FONT_BODY,
+                     pady=20).pack(expand=True)
+
+    def _hist_linha(self, data, tipo, valor, obs, cor, sinal, mov_id):
+        rw = tk.Frame(self._hist_inner, bg=C["bg_card"], pady=6); rw.pack(fill="x")
+        tk.Frame(rw, bg=cor, width=4).pack(side="left", fill="y", padx=(12,8))
+        lb = tk.Frame(rw, bg=C["bg_card"]); lb.pack(side="left", fill="x", expand=True)
+
+        # Data formatada
+        try:
+            dt = datetime.strptime(data, "%Y-%m-%d").strftime("%d/%m")
+        except Exception:
+            dt = str(data)[:5] if data else "--"
+
+        tk.Label(lb, text=f"{dt}  ·  {tipo}", bg=C["bg_card"],
+                 fg=C["text_hi"], font=FONT_BODY, anchor="w").pack(anchor="w")
+        if obs:
+            tk.Label(lb, text=obs, bg=C["bg_card"],
+                     fg=C["text_lo"], font=FONT_SMALL, anchor="w").pack(anchor="w")
+
+        val_txt = f"{sinal}{self._brl(valor)}"
+        tk.Label(rw, text=val_txt, bg=C["bg_card"],
+                 fg=cor, font=("Segoe UI",12,"bold")).pack(side="right", padx=8)
+
+        # Botão excluir (só para movimentos do financeiro)
+        if mov_id:
+            def _del(mid=mov_id):
+                if messagebox.askyesno("Excluir", "Remover este movimento?"):
+                    self._del_movimento(mid)
+                    self._refresh()
+            tk.Label(rw, text="✕", bg=C["bg_card"], fg=C["text_lo"],
+                     font=FONT_SMALL, cursor="hand2").pack(side="right")
+            rw.winfo_children()[-1].bind("<Button-1>", lambda e: _del())
+
+    # ── Ações ─────────────────────────────────────────────────────────────────
+    def _salvar_mult(self, fid):
+        try:
+            m = float(str(self._mult_var.get()).replace(",", "."))
+            if m <= 0: raise ValueError
+        except Exception:
+            messagebox.showerror("Erro", "Multiplicador inválido (ex: 1.5)"); return
+        self._set_mult(fid, m)
+        self._refresh()
+
+    def _registrar_mov(self, f):
+        tipo  = self._tipo_mov.get()
+        raw_v = self._ent_valor_mov.get().strip().replace(",", ".")
+        obs   = self._ent_obs.get().strip()
+        raw_d = self._ent_data.get().strip()
+        try:
+            valor = float(raw_v)
+            if valor <= 0: raise ValueError
+        except Exception:
+            messagebox.showerror("Erro", "Digite um valor válido (ex: 50,00)"); return
+        try:
+            dt = datetime.strptime(raw_d, "%d/%m/%Y").strftime("%Y-%m-%d")
+        except Exception:
+            messagebox.showerror("Erro", "Data inválida (use DD/MM/AAAA)"); return
+        tipo_label = "Adiantamento" if tipo == "adiantamento" else "Bônus"
+        ok = messagebox.askyesno("Confirmar",
+            f"Registrar {tipo_label} de {self._brl(valor)} para {f['nome']}?")
+        if not ok: return
+        self._add_movimento(f["id"], dt, tipo, valor, obs)
+        self._ent_valor_mov.delete(0, "end")
+        self._ent_obs.delete(0, "end")
+        self._refresh()
+
+    def _refresh(self):
+        if self._sel_id:
+            funcs = self.db.get_banco_horas()
+            self._funcs = funcs
+            f = next((x for x in funcs if x["id"] == self._sel_id), None)
+            if f: self._render_financeiro(f)
+        self._load_funcionarios()
+
+    # ── Comprovantes ──────────────────────────────────────────────────────────
+    def _gerar_whatsapp(self, f, dados):
+        tipo_str = "Semanal" if dados["tipo_pag"] == "semana" else "Mensal"
+        linhas = [
+            f"📋 *RESUMO FINANCEIRO — {f['nome'].upper()}*",
+            f"{'─'*34}",
+            f"💰 Salário {tipo_str}: {self._brl(dados['salario'])}",
+            f"⏱ Valor da hora: {self._brl(dados['valor_hora'])}",
+            f"⚡ Hora extra (×{dados['mult']}): {self._brl(dados['valor_hora_ext'])}",
+            f"{'─'*34}",
+            f"🕐 Horas extras: {self._hmin(dados['saldo_min'])}",
+            f"💵 Valor bruto: {self._brl(dados['valor_bruto'])}",
+            f"💸 Adiantamentos: {self._brl(dados['total_adiant'])}",
+            f"✅ Saldo restante: {self._brl(dados['saldo_pendente'])}",
+            f"{'─'*34}",
+            f"📅 {datetime.now().strftime('%d/%m/%Y %H:%M')}",
+        ]
+        texto = "\n".join(linhas)
+        try:
+            self.clipboard_clear(); self.clipboard_append(texto)
+            messagebox.showinfo("WhatsApp", "Texto copiado para a área de transferência!\nCole no WhatsApp.")
+        except Exception:
+            self._mostrar_texto(texto)
+
+    def _gerar_resumo(self, f, dados):
+        tipo_str = "Semanal" if dados["tipo_pag"] == "semana" else "Mensal"
+        movs = dados["movimentos"]
+        linhas = [
+            "=" * 50,
+            f"  RESUMO FINANCEIRO — {f['nome'].upper()}",
+            f"  Emitido em {datetime.now().strftime('%d/%m/%Y às %H:%M')}",
+            "=" * 50,
+            "",
+            "DADOS DO FUNCIONÁRIO",
+            f"  Salário {tipo_str}:      {self._brl(dados['salario'])}",
+            f"  Valor da hora:         {self._brl(dados['valor_hora'])}",
+            f"  Hora extra (×{dados['mult']}):    {self._brl(dados['valor_hora_ext'])}",
+            "",
+            "HORAS EXTRAS",
+            f"  Total acumulado:       {self._hmin(dados['saldo_min'])}",
+            f"  Valor bruto:           {self._brl(dados['valor_bruto'])}",
+            "",
+            "PAGAMENTOS",
+            f"  Adiantamentos:         {self._brl(dados['total_adiant'])}",
+            f"  Bônus registrados:     {self._brl(dados['total_bonus'])}",
+            f"  Pago (folha):          {self._brl(dados['pago_oficial'])}",
+            "",
+            f"  SALDO RESTANTE:        {self._brl(dados['saldo_pendente'])}",
+            "",
+            "HISTÓRICO DE MOVIMENTOS",
+        ]
+        for m in movs:
+            try:
+                dt = datetime.strptime(m["data"], "%Y-%m-%d").strftime("%d/%m/%Y")
+            except Exception:
+                dt = m["data"]
+            sinal = "-" if m["tipo"] == "adiantamento" else "+"
+            linhas.append(f"  {dt}  {m['tipo'].capitalize():<16} {sinal}{self._brl(m['valor'])}")
+            if m["observacao"]: linhas.append(f"          Obs: {m['observacao']}")
+        linhas += ["", "=" * 50]
+        self._mostrar_texto("\n".join(linhas))
+
+    def _gerar_pdf(self, f, dados):
+        """Gera PDF do resumo financeiro usando reportlab se disponível."""
+        try:
+            from reportlab.lib.pagesizes import A4
+            from reportlab.lib import colors
+            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            from reportlab.lib.units import cm
+        except ImportError:
+            messagebox.showwarning("PDF indisponível",
+                "reportlab não instalado.\nExecute: pip install reportlab\n\nUsando resumo em texto.")
+            self._gerar_resumo(f, dados)
+            return
+
+        from tkinter import filedialog as fd
+        path = fd.asksaveasfilename(
+            defaultextension=".pdf",
+            filetypes=[("PDF","*.pdf")],
+            initialfile=f"financeiro_{f['nome']}_{datetime.now().strftime('%Y%m%d')}.pdf",
+            title="Salvar comprovante PDF")
+        if not path: return
+
+        try:
+            doc = SimpleDocTemplate(path, pagesize=A4,
+                                    topMargin=2*cm, bottomMargin=2*cm,
+                                    leftMargin=2.5*cm, rightMargin=2.5*cm)
+            styles = getSampleStyleSheet()
+            BG     = colors.HexColor("#13161E")
+            ACCENT = colors.HexColor("#00C2FF")
+            GOLD   = colors.HexColor("#FFD166")
+            TEAL   = colors.HexColor("#06D6A0")
+            CORAL  = colors.HexColor("#EF476F")
+            WHITE  = colors.white
+
+            title_style = ParagraphStyle("titulo", parent=styles["Title"],
+                                          fontSize=18, textColor=ACCENT, spaceAfter=4)
+            sub_style   = ParagraphStyle("sub",    parent=styles["Normal"],
+                                          fontSize=10, textColor=colors.grey, spaceAfter=12)
+            sect_style  = ParagraphStyle("sect",   parent=styles["Normal"],
+                                          fontSize=9,  textColor=colors.grey,
+                                          fontName="Helvetica-Bold", spaceBefore=12, spaceAfter=4)
+
+            story = [
+                Paragraph(f"COMPROVANTE FINANCEIRO", title_style),
+                Paragraph(f"{f['nome'].upper()} · {datetime.now().strftime('%d/%m/%Y %H:%M')}", sub_style),
+                HRFlowable(width="100%", thickness=1, color=ACCENT, spaceAfter=12),
+                Paragraph("DADOS SALARIAIS", sect_style),
+            ]
+
+            tipo_str = "Semanal (÷ 44h)" if dados["tipo_pag"] == "semana" else "Mensal (÷ 220h)"
+            t1 = Table([
+                ["Salário",          self._brl(dados["salario"]),         tipo_str],
+                ["Valor da Hora",    self._brl(dados["valor_hora"]),      "Base de cálculo"],
+                [f"Hora Extra (×{dados['mult']})", self._brl(dados["valor_hora_ext"]), f"Multiplicador: {dados['mult']}×"],
+            ], colWidths=[5*cm, 4*cm, 6.5*cm])
+            t1.setStyle(TableStyle([
+                ("BACKGROUND", (0,0),(-1,0), colors.HexColor("#1A1E2A")),
+                ("TEXTCOLOR",  (0,0),(-1,-1), WHITE),
+                ("FONTSIZE",   (0,0),(-1,-1), 10),
+                ("ROWBACKGROUNDS", (0,0), (-1,-1), [colors.HexColor("#1A1E2A"), colors.HexColor("#13161E")]),
+                ("GRID",       (0,0),(-1,-1), 0.3, colors.HexColor("#1E2235")),
+                ("LEFTPADDING",(0,0),(-1,-1), 10),
+                ("RIGHTPADDING",(0,0),(-1,-1), 10),
+                ("TOPPADDING", (0,0),(-1,-1), 8),
+                ("BOTTOMPADDING",(0,0),(-1,-1), 8),
+            ]))
+
+            story += [t1, Spacer(1, 0.4*cm), Paragraph("HORAS EXTRAS & SALDO", sect_style)]
+
+            t2 = Table([
+                ["Horas extras acumuladas", self._hmin(dados["saldo_min"])],
+                ["Valor bruto",             self._brl(dados["valor_bruto"])],
+                ["Adiantamentos",           f"- {self._brl(dados['total_adiant'])}"],
+                ["Bônus",                   f"+ {self._brl(dados['total_bonus'])}"],
+                ["Pago (folha)",            f"- {self._brl(dados['pago_oficial'])}"],
+                ["SALDO RESTANTE",          self._brl(dados["saldo_pendente"])],
+            ], colWidths=[8*cm, 7.5*cm])
+            t2.setStyle(TableStyle([
+                ("TEXTCOLOR",    (0,0),(-1,-1), WHITE),
+                ("FONTSIZE",     (0,0),(-1,-1), 10),
+                ("ROWBACKGROUNDS",(0,0),(-1,-2),[colors.HexColor("#1A1E2A"),colors.HexColor("#13161E")]),
+                ("BACKGROUND",   (0,-1),(-1,-1), colors.HexColor("#005599")),
+                ("FONTNAME",     (0,-1),(-1,-1), "Helvetica-Bold"),
+                ("FONTSIZE",     (0,-1),(-1,-1), 12),
+                ("GRID",         (0,0),(-1,-1), 0.3, colors.HexColor("#1E2235")),
+                ("LEFTPADDING",  (0,0),(-1,-1), 10),
+                ("RIGHTPADDING", (0,0),(-1,-1), 10),
+                ("TOPPADDING",   (0,0),(-1,-1), 8),
+                ("BOTTOMPADDING",(0,0),(-1,-1), 8),
+            ]))
+            story += [t2]
+
+            # Histórico
+            movs = dados["movimentos"]
+            if movs:
+                story.append(Paragraph("HISTÓRICO DE MOVIMENTOS", sect_style))
+                rows_h = [["Data", "Tipo", "Valor", "Observação"]]
+                for m in movs:
+                    try: dt = datetime.strptime(m["data"], "%Y-%m-%d").strftime("%d/%m/%Y")
+                    except: dt = m["data"]
+                    sinal = "-" if m["tipo"] == "adiantamento" else "+"
+                    rows_h.append([dt, m["tipo"].capitalize(),
+                                   f"{sinal}{self._brl(m['valor'])}", m["observacao"] or ""])
+                th = Table(rows_h, colWidths=[2.5*cm, 3.5*cm, 3.5*cm, 6*cm])
+                th.setStyle(TableStyle([
+                    ("BACKGROUND",  (0,0),(-1,0), colors.HexColor("#005599")),
+                    ("TEXTCOLOR",   (0,0),(-1,-1), WHITE),
+                    ("FONTNAME",    (0,0),(-1,0), "Helvetica-Bold"),
+                    ("FONTSIZE",    (0,0),(-1,-1), 9),
+                    ("ROWBACKGROUNDS",(0,1),(-1,-1),[colors.HexColor("#1A1E2A"),colors.HexColor("#13161E")]),
+                    ("GRID",        (0,0),(-1,-1), 0.3, colors.HexColor("#1E2235")),
+                    ("LEFTPADDING", (0,0),(-1,-1), 8),
+                    ("RIGHTPADDING",(0,0),(-1,-1), 8),
+                    ("TOPPADDING",  (0,0),(-1,-1), 6),
+                    ("BOTTOMPADDING",(0,0),(-1,-1), 6),
+                ]))
+                story.append(th)
+
+            story.append(Spacer(1, 0.6*cm))
+            story.append(HRFlowable(width="100%", thickness=0.5, color=colors.grey))
+            story.append(Paragraph(f"Documento gerado pelo Sistema de Ponto {APP_VERSION} · {datetime.now().strftime('%d/%m/%Y %H:%M')}",
+                                   ParagraphStyle("footer", parent=styles["Normal"],
+                                                  fontSize=7, textColor=colors.grey, spaceAfter=0)))
+
+            doc.build(story)
+            messagebox.showinfo("PDF Gerado", f"Comprovante salvo em:\n{path}")
+        except Exception as ex:
+            messagebox.showerror("Erro ao gerar PDF", str(ex))
+
+    def _mostrar_texto(self, texto):
+        """Exibe texto em janela popup copiável."""
+        win = tk.Toplevel(self); win.title("Resumo Financeiro")
+        win.configure(bg=C["bg_panel"]); win.geometry("560x480")
+        win.resizable(True, True)
+        tk.Label(win, text="Resumo Financeiro", bg=C["bg_panel"],
+                 fg=C["text_hi"], font=("Segoe UI",13,"bold")).pack(anchor="w", padx=20, pady=(16,4))
+        Sep(win).pack(fill="x", padx=20)
+        txt = tk.Text(win, bg=C["bg_card"], fg=C["text_hi"], font=FONT_MONO,
+                      padx=16, pady=12, relief="flat", wrap="word",
+                      highlightbackground=C["border"], highlightthickness=1)
+        txt.pack(fill="both", expand=True, padx=20, pady=12)
+        txt.insert("1.0", texto)
+        txt.config(state="disabled")
+        bf = tk.Frame(win, bg=C["bg_panel"], padx=20, pady=8); bf.pack(fill="x")
+        def _copy():
+            win.clipboard_clear(); win.clipboard_append(texto)
+        Btn(bf, "📋  Copiar",  _copy,       style="primary").pack(side="left", padx=4)
+        Btn(bf, "✕  Fechar",  win.destroy,  style="outline").pack(side="right", padx=4)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# ETAPA 4.4 — SISTEMA DE CORREÇÃO E VALIDAÇÃO DE PONTO
+# ──────────────────────────────────────────────────────────────────────────────
+
+class ValidacaoEngine:
+    """
+    Detecta problemas em registros de batida de forma independente do CalcEngine.
+    Retorna lista de dicts: {codigo, nivel, descricao, detalhe}
+    nivel: "critico" | "aviso" | "info"
+    """
+
+    JORNADA_MAX_MIN  = 12 * 60   # acima disso → crítico
+    JORNADA_LONG_MIN = 10 * 60   # acima disso → aviso
+    DUP_TOLERANCIA   = 2         # minutos: batidas iguais nesse intervalo = duplicada
+    ALMOCO_MIN_MIN   = 30        # almoço menor que isso → sem almoço real
+    AUSENCIA_MIN_MIN = 30        # "sem saída" quando só há entrada
+
+    @staticmethod
+    def _hm(s: str) -> int:
+        try:
+            h, m = map(int, s.strip().split(":"))
+            return h * 60 + m
+        except Exception:
+            return -1
+
+    def validar(self, horarios: list[str], data_str: str, jornada_h: float) -> list[dict]:
+        """Retorna lista de alertas detectados."""
+        alertas = []
+        hrs_min  = [self._hm(h) for h in horarios if self._hm(h) >= 0]
+        qtd      = len(hrs_min)
+
+        # ── Sem batidas ───────────────────────────────────────────────────────
+        if qtd == 0:
+            alertas.append({"codigo": "SEM_BATIDAS", "nivel": "critico",
+                            "descricao": "Sem batidas registradas",
+                            "detalhe": "Nenhum horário importado para este dia."})
+            return alertas
+
+        # ── Horários impossíveis (fora de 00:00–23:59) ───────────────────────
+        for i, (h_orig, h_min) in enumerate(zip(horarios, hrs_min)):
+            if h_min < 0 or h_min > 23*60+59:
+                alertas.append({"codigo": "HORARIO_INVALIDO", "nivel": "critico",
+                                "descricao": f"Horário impossível: {h_orig}",
+                                "detalhe": f"Batida {i+1} fora do intervalo 00:00–23:59."})
+
+        # ── Batidas duplicadas ────────────────────────────────────────────────
+        for i in range(len(hrs_min)):
+            for j in range(i+1, len(hrs_min)):
+                if abs(hrs_min[i] - hrs_min[j]) <= ValidacaoEngine.DUP_TOLERANCIA:
+                    alertas.append({"codigo": "DUPLICADA", "nivel": "aviso",
+                                    "descricao": f"Batida duplicada: {horarios[i]} ≈ {horarios[j]}",
+                                    "detalhe": "Duas batidas muito próximas — possível erro do relógio."})
+
+        # ── Saída antes da entrada ────────────────────────────────────────────
+        for i in range(0, qtd - 1, 2):
+            if i+1 < qtd and hrs_min[i+1] < hrs_min[i]:
+                alertas.append({"codigo": "SAIDA_ANTES_ENTRADA", "nivel": "critico",
+                                "descricao": f"Saída ({horarios[i+1]}) antes da entrada ({horarios[i]})",
+                                "detalhe": f"Par de batidas {i+1}/{i+2} tem ordem invertida."})
+
+        # ── Número ímpar de batidas ───────────────────────────────────────────
+        if qtd % 2 != 0:
+            alertas.append({"codigo": "IMPAR", "nivel": "critico",
+                            "descricao": f"Número ímpar de batidas ({qtd})",
+                            "detalhe": "Possível batida esquecida — entrada ou saída faltando."})
+
+        # ── Sem saída registrada (apenas 1 batida) ───────────────────────────
+        if qtd == 1:
+            alertas.append({"codigo": "SEM_SAIDA", "nivel": "critico",
+                            "descricao": "Funcionário sem saída registrada",
+                            "detalhe": f"Apenas entrada ({horarios[0]}) encontrada."})
+
+        # ── Jornada calculada ─────────────────────────────────────────────────
+        if qtd >= 2 and qtd % 2 == 0:
+            trab = sum(max(0, hrs_min[i+1] - hrs_min[i]) for i in range(0, qtd, 2))
+
+            if trab > ValidacaoEngine.JORNADA_MAX_MIN:
+                alertas.append({"codigo": "JORNADA_EXCESSIVA", "nivel": "critico",
+                                "descricao": f"Jornada acima de 12h ({_fmt(trab)})",
+                                "detalhe": "Provável erro de batida — confira os horários."})
+            elif trab > ValidacaoEngine.JORNADA_LONG_MIN:
+                alertas.append({"codigo": "JORNADA_LONGA", "nivel": "aviso",
+                                "descricao": f"Jornada acima de 10h ({_fmt(trab)})",
+                                "detalhe": "Jornada acima do normal — confirme se é real."})
+
+        # ── Falta de almoço (4 batidas, intervalo < 30 min) ──────────────────
+        if qtd == 4:
+            almoco = hrs_min[2] - hrs_min[1]
+            if 0 < almoco < ValidacaoEngine.ALMOCO_MIN_MIN:
+                alertas.append({"codigo": "ALMOCO_CURTO", "nivel": "aviso",
+                                "descricao": f"Almoço muito curto ({_fmt(almoco)})",
+                                "detalhe": "Intervalo de almoço menor que 30 min. Confirmar trabalho direto?"})
+            if almoco <= 0:
+                alertas.append({"codigo": "SEM_ALMOCO", "nivel": "aviso",
+                                "descricao": "Almoço não registrado corretamente",
+                                "detalhe": "Retorno antes da saída para almoço."})
+
+        # ── Dia incompleto (< 50% da jornada esperada) ───────────────────────
+        if qtd >= 2 and qtd % 2 == 0:
+            trab = sum(max(0, hrs_min[i+1] - hrs_min[i]) for i in range(0, qtd, 2))
+            jorn = int(jornada_h * 60)
+            if 0 < trab < jorn * 0.5:
+                alertas.append({"codigo": "DIA_INCOMPLETO", "nivel": "aviso",
+                                "descricao": f"Dia incompleto ({_fmt(trab)} de {_fmt(jorn)})",
+                                "detalhe": "Menos de 50% da jornada esperada registrada."})
+
+        return alertas
+
+
+class PageValidacao(tk.Frame):
+    """
+    Etapa 4.4 — Validação e Correção de Registros de Ponto.
+    Detecta erros automaticamente e permite correção manual com histórico de auditoria.
+    """
+
+    # Paleta de severidade
+    _COR = {
+        "critico": "#FF4D6A",
+        "aviso":   "#FFB830",
+        "info":    "#00C2FF",
+        "ok":      "#00E5A0",
+    }
+    _ICONE = {"critico": "✕", "aviso": "⚠", "info": "ℹ", "ok": "✓"}
+
+    def __init__(self, parent, db, **kw):
+        super().__init__(parent, bg=C["bg_panel"], **kw)
+        self.db      = db
+        self.engine  = CalcEngine()
+        self.vld     = ValidacaoEngine()
+        self._todos_problemas = []   # lista de dicts com problema + referência à batida
+        self._sel_problema    = None
+        self._filtro_nivel    = tk.StringVar(value="todos")
+        self._build()
+        self._ensure_audit_table()
+        self._scan()
+
+    # ── Migração segura ───────────────────────────────────────────────────────
+    def _ensure_audit_table(self):
+        self.db.conn.executescript("""
+        CREATE TABLE IF NOT EXISTS ponto_auditoria (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            batida_id     INTEGER NOT NULL,
+            admin         TEXT    NOT NULL DEFAULT 'admin',
+            criado_em     TEXT    NOT NULL,
+            acao          TEXT    NOT NULL,
+            horarios_ant  TEXT,
+            horarios_nov  TEXT,
+            justificativa TEXT,
+            FOREIGN KEY (batida_id) REFERENCES batidas(id)
+        );
+        CREATE TABLE IF NOT EXISTS ponto_flags (
+            batida_id        INTEGER PRIMARY KEY,
+            trabalho_direto  INTEGER NOT NULL DEFAULT 0,
+            corrigido        INTEGER NOT NULL DEFAULT 0,
+            ignorado         INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (batida_id) REFERENCES batidas(id)
+        );
+        """)
+        try:
+            self.db.conn.execute("ALTER TABLE batidas ADD COLUMN horarios_corrigidos TEXT DEFAULT NULL")
+        except Exception:
+            pass
+        self.db.conn.commit()
+
+    def _get_flag(self, batida_id: int) -> dict:
+        row = self.db.conn.execute(
+            "SELECT * FROM ponto_flags WHERE batida_id=?", (batida_id,)).fetchone()
+        if row:
+            return dict(row)
+        return {"batida_id": batida_id, "trabalho_direto": 0, "corrigido": 0, "ignorado": 0}
+
+    def _set_flag(self, batida_id: int, **kwargs):
+        existing = self.db.conn.execute(
+            "SELECT 1 FROM ponto_flags WHERE batida_id=?", (batida_id,)).fetchone()
+        if existing:
+            sets = ", ".join(f"{k}=?" for k in kwargs)
+            self.db.conn.execute(
+                f"UPDATE ponto_flags SET {sets} WHERE batida_id=?",
+                list(kwargs.values()) + [batida_id])
+        else:
+            keys = ["batida_id"] + list(kwargs.keys())
+            vals = [batida_id]   + list(kwargs.values())
+            self.db.conn.execute(
+                f"INSERT INTO ponto_flags({','.join(keys)}) VALUES({','.join('?'*len(keys))})",
+                vals)
+        self.db.conn.commit()
+
+    def _registrar_auditoria(self, batida_id, acao, ant, nov, justificativa):
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.db.conn.execute(
+            "INSERT INTO ponto_auditoria(batida_id,admin,criado_em,acao,horarios_ant,horarios_nov,justificativa)"
+            " VALUES(?,?,?,?,?,?,?)",
+            (batida_id, "admin", now, acao, ant, nov, justificativa))
+        self.db.conn.commit()
+
+    # ── Scanner de problemas ──────────────────────────────────────────────────
+    def _scan(self):
+        """Varre TODOS os registros e detecta problemas."""
+        self._todos_problemas = []
+        funcs = {f["id"]: f for f in self.db.get_funcionarios(apenas_ativos=False)}
+        batidas = self.db.conn.execute("""
+            SELECT b.*, f.nome as func_nome, f.jornada_h
+            FROM batidas b
+            LEFT JOIN funcionarios f ON f.id = b.funcionario_id
+            ORDER BY b.data DESC, b.funcionario_raw
+        """).fetchall()
+
+        for bat in batidas:
+            flag = self._get_flag(bat["id"])
+            if flag["ignorado"]:
+                continue
+            # Usa horários corrigidos se existirem
+            hrs_raw = bat["horarios_corrigidos"] or bat["horarios"]
+            hrs = [h.strip() for h in hrs_raw.split(",") if h.strip()] if hrs_raw else []
+            jorn = bat["jornada_h"] or 8.0
+            alertas = self.vld.validar(hrs, bat["data"], jorn)
+            if alertas:
+                for al in alertas:
+                    self._todos_problemas.append({
+                        "batida": bat,
+                        "flag":   flag,
+                        "alerta": al,
+                        "hrs":    hrs,
+                    })
+
+        self._render_lista()
+        self._update_contadores()
+
+    # ── Construção da interface ───────────────────────────────────────────────
+    def _build(self):
+        # Header
+        hdr = tk.Frame(self, bg=C["bg_panel"], padx=36, pady=22); hdr.pack(fill="x")
+        lh  = tk.Frame(hdr, bg=C["bg_panel"]); lh.pack(side="left", fill="x", expand=True)
+        tk.Label(lh, text="🔍  Validação de Registros", bg=C["bg_panel"],
+                 fg=C["text_hi"], font=FONT_TITLE).pack(anchor="w")
+        tk.Label(lh, text="Detecção automática de erros · Correção manual · Histórico de auditoria",
+                 bg=C["bg_panel"], fg=C["text_mid"], font=FONT_BODY).pack(anchor="w")
+        Btn(hdr, "↻  Escanear", self._scan, style="primary").pack(side="right", pady=4)
+        Btn(hdr, "📋  Auditoria", self._abrir_auditoria, style="outline").pack(side="right", pady=4, padx=6)
+        Sep(self).pack(fill="x", padx=36)
+
+        # Contadores
+        self._cnt_frame = tk.Frame(self, bg=C["bg_panel"], padx=36, pady=10)
+        self._cnt_frame.pack(fill="x")
+        self._build_contadores()
+
+        # Filtros de nível
+        flt = tk.Frame(self, bg=C["bg_card"],
+                       highlightbackground=C["border"], highlightthickness=1)
+        flt.pack(fill="x", padx=36, pady=0)
+        tk.Frame(flt, bg=C["warning"], height=2).pack(fill="x")
+        fi = tk.Frame(flt, bg=C["bg_card"], padx=20, pady=10); fi.pack(fill="x")
+        tk.Label(fi, text="Filtrar:", bg=C["bg_card"], fg=C["text_mid"],
+                 font=FONT_BODY).pack(side="left")
+        for lbl, val, cor in [
+            ("Todos",    "todos",   C["text_mid"]),
+            ("Críticos", "critico", self._COR["critico"]),
+            ("Avisos",   "aviso",   self._COR["aviso"]),
+        ]:
+            rb = tk.Radiobutton(fi, text=lbl, variable=self._filtro_nivel, value=val,
+                                bg=C["bg_card"], fg=cor, selectcolor=C["bg_dark"],
+                                activebackground=C["bg_card"], activeforeground=cor,
+                                font=FONT_BODY, command=self._render_lista)
+            rb.pack(side="left", padx=12)
+
+        # Corpo: lista + painel
+        body = tk.Frame(self, bg=C["bg_panel"], padx=36, pady=10)
+        body.pack(fill="both", expand=True)
+        body.columnconfigure(0, weight=3); body.columnconfigure(1, weight=2)
+
+        # Lista de problemas (esquerda)
+        lw = tk.Frame(body, bg=C["bg_panel"]); lw.grid(row=0, column=0, sticky="nsew", padx=(0,12))
+        tk.Label(lw, text="PROBLEMAS DETECTADOS", bg=C["bg_panel"],
+                 fg=C["text_mid"], font=(FONT_SMALL[0],9,"bold")).pack(anchor="w", pady=(0,6))
+
+        list_card = tk.Frame(lw, bg=C["bg_card"],
+                              highlightbackground=C["border"], highlightthickness=1)
+        list_card.pack(fill="both", expand=True)
+        tk.Frame(list_card, bg=self._COR["critico"], height=3).pack(fill="x")
+
+        self._list_canvas = tk.Canvas(list_card, bg=C["bg_card"], highlightthickness=0)
+        list_vsb = ttk.Scrollbar(list_card, orient="vertical", command=self._list_canvas.yview)
+        self._list_inner = tk.Frame(self._list_canvas, bg=C["bg_card"])
+        self._list_inner.bind("<Configure>",
+            lambda e: self._list_canvas.configure(scrollregion=self._list_canvas.bbox("all")))
+        self._list_canvas.create_window((0,0), window=self._list_inner, anchor="nw")
+        self._list_canvas.configure(yscrollcommand=list_vsb.set)
+        list_vsb.pack(side="right", fill="y")
+        self._list_canvas.pack(fill="both", expand=True)
+
+        # Painel direito
+        rw = tk.Frame(body, bg=C["bg_panel"]); rw.grid(row=0, column=1, sticky="nsew")
+        self._build_painel_direito(rw)
+
+    def _build_contadores(self):
+        for w in self._cnt_frame.winfo_children(): w.destroy()
+        for title, attr, cor in [
+            ("Críticos",    "_cnt_critico", self._COR["critico"]),
+            ("Avisos",      "_cnt_aviso",   self._COR["aviso"]),
+            ("Total",       "_cnt_total",   C["text_mid"]),
+            ("Ignorados",   "_cnt_ignorado",C["text_lo"]),
+        ]:
+            cf = tk.Frame(self._cnt_frame, bg=C["bg_card"],
+                          highlightbackground=C["border"], highlightthickness=1)
+            cf.pack(side="left", padx=4, pady=2)
+            tk.Frame(cf, bg=cor, height=3).pack(fill="x")
+            ci = tk.Frame(cf, bg=C["bg_card"], padx=20, pady=10); ci.pack()
+            lv = tk.Label(ci, text="0", bg=C["bg_card"], fg=cor,
+                          font=("Segoe UI",22,"bold"))
+            lv.pack()
+            tk.Label(ci, text=title, bg=C["bg_card"], fg=C["text_lo"],
+                     font=(FONT_SMALL[0],8,"bold")).pack()
+            setattr(self, attr, lv)
+
+    def _update_contadores(self):
+        n_crit = sum(1 for p in self._todos_problemas if p["alerta"]["nivel"] == "critico")
+        n_avis = sum(1 for p in self._todos_problemas if p["alerta"]["nivel"] == "aviso")
+        n_tot  = len(self._todos_problemas)
+        n_ign  = self.db.conn.execute(
+            "SELECT COUNT(*) FROM ponto_flags WHERE ignorado=1").fetchone()[0]
+        self._cnt_critico.config(text=str(n_crit))
+        self._cnt_aviso.config(text=str(n_avis))
+        self._cnt_total.config(text=str(n_tot))
+        self._cnt_ignorado.config(text=str(n_ign))
+
+    def _build_painel_direito(self, parent):
+        tk.Label(parent, text="DETALHES E CORREÇÃO", bg=C["bg_panel"],
+                 fg=C["text_mid"], font=(FONT_SMALL[0],9,"bold")).pack(anchor="w", pady=(0,6))
+        self._painel = tk.Frame(parent, bg=C["bg_card"],
+                                 highlightbackground=C["border"], highlightthickness=1)
+        self._painel.pack(fill="both", expand=True)
+        tk.Frame(self._painel, bg=C["accent"], height=3).pack(fill="x")
+        self._painel_inner = tk.Frame(self._painel, bg=C["bg_card"], padx=20, pady=16)
+        self._painel_inner.pack(fill="both", expand=True)
+        self._painel_placeholder()
+
+    def _painel_placeholder(self):
+        for w in self._painel_inner.winfo_children(): w.destroy()
+        tk.Label(self._painel_inner, text="🔍", bg=C["bg_card"],
+                 fg=C["text_lo"], font=("Segoe UI",32)).pack(pady=10, expand=True)
+        tk.Label(self._painel_inner, text="Selecione um problema\npara ver detalhes e corrigir",
+                 bg=C["bg_card"], fg=C["text_lo"], font=FONT_BODY,
+                 justify="center").pack(expand=True)
+
+    # ── Lista de problemas ────────────────────────────────────────────────────
+    def _render_lista(self):
+        for w in self._list_inner.winfo_children(): w.destroy()
+        filtro = self._filtro_nivel.get()
+        probs  = [p for p in self._todos_problemas
+                  if filtro == "todos" or p["alerta"]["nivel"] == filtro]
+
+        if not probs:
+            tk.Label(self._list_inner,
+                     text="✓  Nenhum problema encontrado!" if filtro == "todos"
+                          else f"Nenhum problema '{filtro}' encontrado.",
+                     bg=C["bg_card"], fg=self._COR["ok"],
+                     font=("Segoe UI",12), pady=30).pack(expand=True)
+            return
+
+        # Agrupa por funcionário/dia para evitar repetição
+        for i, prob in enumerate(probs):
+            bat  = prob["batida"]
+            al   = prob["alerta"]
+            cor  = self._COR.get(al["nivel"], C["text_mid"])
+            flag = prob["flag"]
+            corrigido = flag.get("corrigido", 0)
+
+            row = tk.Frame(self._list_inner, bg=C["bg_card"], cursor="hand2")
+            row.pack(fill="x")
+
+            # Barra lateral colorida
+            tk.Frame(row, bg=cor, width=5).pack(side="left", fill="y")
+
+            inner = tk.Frame(row, bg=C["bg_card"], padx=12, pady=10)
+            inner.pack(side="left", fill="x", expand=True)
+
+            # Linha 1: ícone + descrição
+            l1 = tk.Frame(inner, bg=C["bg_card"]); l1.pack(fill="x")
+            icone = self._ICONE.get(al["nivel"], "?")
+            tk.Label(l1, text=icone, bg=C["bg_card"], fg=cor,
+                     font=("Segoe UI",10,"bold"), width=2).pack(side="left")
+            tk.Label(l1, text=al["descricao"], bg=C["bg_card"],
+                     fg=C["text_hi"], font=("Segoe UI",10,"bold"), anchor="w").pack(side="left")
+            if corrigido:
+                tk.Label(l1, text="✓ corrigido", bg=C["bg_card"],
+                         fg=self._COR["ok"], font=FONT_SMALL).pack(side="right")
+
+            # Linha 2: func + data
+            func_nome = bat["func_nome"] or bat["funcionario_raw"]
+            try:
+                dt_fmt = datetime.strptime(bat["data"], "%Y-%m-%d").strftime("%d/%m/%Y")
+            except Exception:
+                dt_fmt = bat["data"]
+            tk.Label(inner, text=f"{func_nome}  ·  {dt_fmt}",
+                     bg=C["bg_card"], fg=C["text_mid"], font=FONT_SMALL,
+                     anchor="w").pack(anchor="w")
+
+            # Botão corrigir no lado direito
+            btn_frame = tk.Frame(row, bg=C["bg_card"], padx=8); btn_frame.pack(side="right", fill="y")
+            Btn(btn_frame, "Corrigir", cmd=lambda p=prob: self._abrir_correcao(p),
+                style="primary" if not corrigido else "outline").pack(expand=True)
+
+            # Clique na linha seleciona o problema
+            def _click(e=None, p=prob): self._selecionar_problema(p)
+            for w in (row, inner, l1):
+                w.bind("<Button-1>", _click)
+
+            Sep(self._list_inner).pack(fill="x")
+
+    # ── Seleção e painel de detalhes ─────────────────────────────────────────
+    def _selecionar_problema(self, prob):
+        self._sel_problema = prob
+        self._render_painel_detalhe(prob)
+
+    def _render_painel_detalhe(self, prob):
+        for w in self._painel_inner.winfo_children(): w.destroy()
+        bat  = prob["batida"]
+        al   = prob["alerta"]
+        flag = prob["flag"]
+        cor  = self._COR.get(al["nivel"], C["text_mid"])
+
+        func_nome = bat["func_nome"] or bat["funcionario_raw"]
+        try:
+            dt_fmt = datetime.strptime(bat["data"], "%Y-%m-%d").strftime("%d/%m/%Y (%A)")
+        except Exception:
+            dt_fmt = bat["data"]
+
+        # Cabeçalho
+        tk.Label(self._painel_inner, text=func_nome, bg=C["bg_card"],
+                 fg=C["text_hi"], font=("Segoe UI",13,"bold")).pack(anchor="w")
+        tk.Label(self._painel_inner, text=dt_fmt, bg=C["bg_card"],
+                 fg=C["accent"], font=FONT_BODY).pack(anchor="w", pady=2)
+        Sep(self._painel_inner).pack(fill="x", pady=8)
+
+        # Alerta
+        af = tk.Frame(self._painel_inner, bg=C["bg_dark"],
+                      highlightbackground=cor, highlightthickness=1)
+        af.pack(fill="x", pady=4)
+        tk.Frame(af, bg=cor, height=3).pack(fill="x")
+        ai = tk.Frame(af, bg=C["bg_dark"], padx=12, pady=10); ai.pack(fill="x")
+        tk.Label(ai, text=f"{self._ICONE.get(al['nivel'],'?')}  {al['descricao']}",
+                 bg=C["bg_dark"], fg=cor, font=("Segoe UI",10,"bold")).pack(anchor="w")
+        tk.Label(ai, text=al["detalhe"], bg=C["bg_dark"],
+                 fg=C["text_mid"], font=FONT_SMALL, wraplength=260, justify="left").pack(anchor="w")
+
+        Sep(self._painel_inner).pack(fill="x", pady=8)
+
+        # Horários atuais
+        tk.Label(self._painel_inner, text="HORÁRIOS ATUAIS", bg=C["bg_card"],
+                 fg=C["text_lo"], font=(FONT_SMALL[0],8,"bold")).pack(anchor="w")
+        hrs = prob["hrs"]
+        LABELS = ["Entrada","Saída almoço","Retorno","Saída","Bat.5","Bat.6","Bat.7","Bat.8"]
+        for i, h in enumerate(hrs):
+            rw = tk.Frame(self._painel_inner, bg=C["bg_input"], pady=4, padx=10)
+            rw.pack(fill="x", pady=2)
+            lbl = LABELS[i] if i < len(LABELS) else f"Batida {i+1}"
+            tk.Label(rw, text=lbl, bg=C["bg_input"], fg=C["text_mid"],
+                     font=FONT_SMALL, width=12, anchor="w").pack(side="left")
+            tk.Label(rw, text=h, bg=C["bg_input"], fg=C["text_hi"],
+                     font=("Segoe UI",12,"bold")).pack(side="right")
+        if not hrs:
+            tk.Label(self._painel_inner, text="Nenhum horário registrado",
+                     bg=C["bg_card"], fg=C["text_lo"], font=FONT_SMALL).pack(anchor="w", pady=4)
+
+        # Trabalho direto (se aplicável)
+        if flag.get("trabalho_direto"):
+            tf = tk.Frame(self._painel_inner, bg="#1A2E1A", padx=12, pady=6)
+            tf.pack(fill="x", pady=4)
+            tk.Label(tf, text="✓  Marcado como trabalho direto",
+                     bg="#1A2E1A", fg=self._COR["ok"], font=FONT_SMALL).pack(anchor="w")
+
+        Sep(self._painel_inner).pack(fill="x", pady=8)
+
+        # Botões de ação
+        Btn(self._painel_inner, "✏  Corrigir Registro",
+            cmd=lambda: self._abrir_correcao(prob), style="primary").pack(fill="x", pady=2)
+        Btn(self._painel_inner, "⚡  Trabalho Direto",
+            cmd=lambda: self._marcar_trabalho_direto(prob), style="warning").pack(fill="x", pady=2)
+        Btn(self._painel_inner, "○  Ignorar este alerta",
+            cmd=lambda: self._ignorar(prob), style="outline").pack(fill="x", pady=2)
+
+    # ── Modal de correção ─────────────────────────────────────────────────────
+    def _abrir_correcao(self, prob):
+        bat  = prob["batida"]
+        hrs  = list(prob["hrs"])
+
+        win = tk.Toplevel(self); win.title("Corrigir Registro")
+        win.configure(bg=C["bg_panel"]); win.geometry("560x640")
+        win.resizable(False, True); win.grab_set()
+
+        # Header
+        tk.Frame(win, bg=C["danger"], height=4).pack(fill="x")
+        hf = tk.Frame(win, bg=C["bg_panel"], padx=24, pady=16); hf.pack(fill="x")
+        func_nome = bat["func_nome"] or bat["funcionario_raw"]
+        try:
+            dt_fmt = datetime.strptime(bat["data"], "%Y-%m-%d").strftime("%d/%m/%Y")
+        except Exception:
+            dt_fmt = bat["data"]
+        tk.Label(hf, text="✏  Corrigir Registro", bg=C["bg_panel"],
+                 fg=C["text_hi"], font=("Segoe UI",14,"bold")).pack(anchor="w")
+        tk.Label(hf, text=f"{func_nome}  ·  {dt_fmt}",
+                 bg=C["bg_panel"], fg=C["text_mid"], font=FONT_BODY).pack(anchor="w")
+        Sep(win).pack(fill="x", padx=24)
+
+        # Scroll area
+        canvas = tk.Canvas(win, bg=C["bg_panel"], highlightthickness=0)
+        vsb    = ttk.Scrollbar(win, orient="vertical", command=canvas.yview)
+        scroll_f = tk.Frame(canvas, bg=C["bg_panel"])
+        scroll_f.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0,0), window=scroll_f, anchor="nw")
+        canvas.configure(yscrollcommand=vsb.set)
+        vsb.pack(side="right", fill="y"); canvas.pack(fill="both", expand=True)
+
+        body = tk.Frame(scroll_f, bg=C["bg_panel"], padx=24, pady=12); body.pack(fill="x")
+
+        # ── Alerta atual ──────────────────────────────────────────────────────
+        al  = prob["alerta"]
+        cor = self._COR.get(al["nivel"], C["text_mid"])
+        af  = tk.Frame(body, bg=C["bg_dark"],
+                       highlightbackground=cor, highlightthickness=1)
+        af.pack(fill="x", pady=(0,12))
+        tk.Frame(af, bg=cor, height=3).pack(fill="x")
+        tk.Label(af, text=f"  {self._ICONE.get(al['nivel'],'?')}  {al['descricao']}",
+                 bg=C["bg_dark"], fg=cor, font=("Segoe UI",10,"bold"), pady=8).pack(anchor="w")
+
+        # ── Editor de batidas ─────────────────────────────────────────────────
+        tk.Label(body, text="EDITAR BATIDAS", bg=C["bg_panel"],
+                 fg=C["text_mid"], font=(FONT_SMALL[0],9,"bold")).pack(anchor="w", pady=(8,4))
+        tk.Label(body, text="Use HH:MM  ·  Deixe em branco para remover  ·  Ordem será reordenada",
+                 bg=C["bg_panel"], fg=C["text_lo"], font=FONT_SMALL).pack(anchor="w", pady=(0,8))
+
+        # Garante ao menos 6 campos (para adicionar batidas)
+        max_campos = max(8, len(hrs) + 2)
+        LABELS = ["Entrada","Saída almoço","Retorno","Saída","Bat.5","Bat.6","Bat.7","Bat.8"]
+        entries = []
+        for i in range(max_campos):
+            rw = tk.Frame(body, bg=C["bg_panel"]); rw.pack(fill="x", pady=3)
+            lbl = LABELS[i] if i < len(LABELS) else f"Batida {i+1}"
+            tk.Label(rw, text=lbl, bg=C["bg_panel"], fg=C["text_mid"],
+                     font=FONT_BODY, width=14, anchor="w").pack(side="left")
+            ent = tk.Entry(rw, bg=C["bg_input"], fg=C["text_hi"], font=("Segoe UI",13,"bold"),
+                           width=10, insertbackground=C["accent"], relief="flat",
+                           highlightbackground=C["border"], highlightthickness=1)
+            if i < len(hrs):
+                ent.insert(0, hrs[i])
+            ent.pack(side="left", padx=8)
+            # Indicador de problema
+            if i < len(hrs):
+                # Verifica se esta batida específica tem problema
+                pass
+            entries.append(ent)
+
+        # ── Trabalho direto ───────────────────────────────────────────────────
+        Sep(body).pack(fill="x", pady=12)
+        flag = prob["flag"]
+        td_var = tk.BooleanVar(value=bool(flag.get("trabalho_direto", 0)))
+        td_frame = tk.Frame(body, bg=C["bg_dark"], padx=14, pady=10)
+        td_frame.pack(fill="x", pady=4)
+        tk.Label(td_frame, text="⚡", bg=C["bg_dark"], fg=C["warning"],
+                 font=("Segoe UI",14)).pack(side="left", padx=4)
+        tf_txt = tk.Frame(td_frame, bg=C["bg_dark"]); tf_txt.pack(side="left", fill="x", expand=True)
+        tk.Label(tf_txt, text="Confirmar como trabalho direto",
+                 bg=C["bg_dark"], fg=C["text_hi"], font=("Segoe UI",10,"bold")).pack(anchor="w")
+        tk.Label(tf_txt, text="Não desconta almoço. Calcula horas corridas.",
+                 bg=C["bg_dark"], fg=C["text_lo"], font=FONT_SMALL).pack(anchor="w")
+        tk.Checkbutton(td_frame, variable=td_var, bg=C["bg_dark"],
+                       activebackground=C["bg_dark"], selectcolor=C["bg_dark"]).pack(side="right")
+
+        # ── Justificativa ─────────────────────────────────────────────────────
+        Sep(body).pack(fill="x", pady=12)
+        tk.Label(body, text="JUSTIFICATIVA (obrigatório)", bg=C["bg_panel"],
+                 fg=C["text_mid"], font=(FONT_SMALL[0],9,"bold")).pack(anchor="w", pady=(0,4))
+        just_ent = tk.Entry(body, bg=C["bg_input"], fg=C["text_hi"], font=FONT_BODY,
+                             insertbackground=C["accent"], relief="flat",
+                             highlightbackground=C["border"], highlightthickness=1)
+        just_ent.pack(fill="x", pady=2)
+        tk.Label(body, text="Ex: 'Batida de saída esquecida — confirmado com funcionário'",
+                 bg=C["bg_panel"], fg=C["text_lo"], font=FONT_SMALL).pack(anchor="w")
+
+        # ── Ações ─────────────────────────────────────────────────────────────
+        Sep(body).pack(fill="x", pady=12)
+        # Preview do cálculo
+        self._preview_label = tk.Label(body, text="", bg=C["bg_panel"],
+                                        fg=C["text_mid"], font=FONT_SMALL, justify="left")
+        self._preview_label.pack(anchor="w", pady=4)
+
+        def _preview():
+            novos = [e.get().strip() for e in entries if e.get().strip()]
+            novos = sorted([h for h in novos if re.match(r'^\d{1,2}:\d{2}$', h)])
+            if novos:
+                jorn = bat["jornada_h"] or 8.0
+                calc = self.engine.calc_dia(bat["data"], novos, jorn)
+                td   = td_var.get()
+                trab = calc["trabalhados_min"]
+                if td and len(novos) == 2:
+                    pass  # já correto para 2 batidas
+                saldo_cor = "green" if calc["saldo_min"] >= 0 else "red"
+                self._preview_label.config(
+                    text=f"Preview: {','.join(novos)}\n"
+                         f"Trabalhado: {calc['trabalhados_fmt']}  |  "
+                         f"Extras: {calc['extras_fmt']}  |  Saldo: {calc['saldo_fmt']}",
+                    fg=C["success"] if calc["saldo_min"] >= 0 else C["warning"])
+            else:
+                self._preview_label.config(text="Preencha os horários para ver o preview.")
+
+        Btn(body, "👁  Preview do cálculo", _preview, style="outline").pack(anchor="w", pady=4)
+
+        def _salvar():
+            # Coleta e valida
+            novos = [e.get().strip() for e in entries if e.get().strip()]
+            novos = [h for h in novos if re.match(r'^\d{1,2}:\d{2}$', h)]
+            novos = sorted(novos)
+            just  = just_ent.get().strip()
+            if not just:
+                messagebox.showerror("Justificativa obrigatória",
+                    "Digite uma justificativa antes de salvar.", parent=win); return
+            ant_str = bat["horarios_corrigidos"] or bat["horarios"]
+            nov_str = ",".join(novos)
+            # Salva horários corrigidos na batida
+            self.db.conn.execute(
+                "UPDATE batidas SET horarios_corrigidos=? WHERE id=?",
+                (nov_str, bat["id"]))
+            self.db.conn.commit()
+            # Flags
+            self._set_flag(bat["id"], corrigido=1,
+                           trabalho_direto=1 if td_var.get() else 0)
+            # Auditoria
+            self._registrar_auditoria(bat["id"], "correcao_manual",
+                                       ant_str, nov_str, just)
+            messagebox.showinfo("Salvo", "Registro corrigido e auditoria registrada!", parent=win)
+            win.destroy()
+            self._scan()
+
+        def _remover_batida():
+            """Remove a batida inteira (marca como ignorada)."""
+            just = just_ent.get().strip()
+            if not just:
+                messagebox.showerror("Justificativa obrigatória",
+                    "Digite uma justificativa antes de remover.", parent=win); return
+            ok = messagebox.askyesno("Confirmar remoção",
+                "Remover todas as batidas deste dia?\n"
+                "A batida ficará com 0 horários e será ignorada na validação.", parent=win)
+            if not ok: return
+            ant_str = bat["horarios_corrigidos"] or bat["horarios"]
+            self.db.conn.execute(
+                "UPDATE batidas SET horarios_corrigidos='' WHERE id=?", (bat["id"],))
+            self.db.conn.commit()
+            self._set_flag(bat["id"], corrigido=1, ignorado=1)
+            self._registrar_auditoria(bat["id"], "remocao_manual", ant_str, "", just)
+            messagebox.showinfo("Removido", "Batidas removidas e auditoria registrada.", parent=win)
+            win.destroy()
+            self._scan()
+
+        bf = tk.Frame(body, bg=C["bg_panel"]); bf.pack(fill="x", pady=8)
+        Btn(bf, "✓  Salvar Correção",    _salvar,         style="success").pack(side="left")
+        Btn(bf, "🗑  Remover Batida",     _remover_batida, style="danger").pack(side="left", padx=8)
+        Btn(bf, "Cancelar",              win.destroy,     style="outline").pack(side="right")
+
+    # ── Trabalho direto rápido ────────────────────────────────────────────────
+    def _marcar_trabalho_direto(self, prob):
+        bat  = prob["batida"]
+        nome = bat["func_nome"] or bat["funcionario_raw"]
+        try:
+            dt = datetime.strptime(bat["data"], "%Y-%m-%d").strftime("%d/%m/%Y")
+        except Exception:
+            dt = bat["data"]
+        ok = messagebox.askyesno("Trabalho Direto",
+            f"Confirmar trabalho direto para {nome} em {dt}?\n\n"
+            "O almoço NÃO será descontado. As horas serão calculadas de forma contínua.")
+        if not ok: return
+        self._set_flag(bat["id"], trabalho_direto=1, corrigido=1)
+        self._registrar_auditoria(bat["id"], "trabalho_direto",
+                                   bat["horarios"], bat["horarios_corrigidos"] or bat["horarios"],
+                                   "Confirmado como trabalho direto pelo administrador")
+        self._scan()
+
+    def _ignorar(self, prob):
+        bat  = prob["batida"]
+        nome = bat["func_nome"] or bat["funcionario_raw"]
+        try:
+            dt = datetime.strptime(bat["data"], "%Y-%m-%d").strftime("%d/%m/%Y")
+        except Exception:
+            dt = bat["data"]
+        ok = messagebox.askyesno("Ignorar alerta",
+            f"Ignorar o alerta '{prob['alerta']['descricao']}'\npara {nome} em {dt}?\n\n"
+            "O registro não aparecerá mais na lista de problemas.")
+        if not ok: return
+        self._set_flag(bat["id"], ignorado=1)
+        self._registrar_auditoria(bat["id"], "ignorado",
+                                   bat["horarios"], "", "Alerta ignorado pelo administrador")
+        self._scan()
+
+    # ── Tela de auditoria ─────────────────────────────────────────────────────
+    def _abrir_auditoria(self):
+        win = tk.Toplevel(self); win.title("Histórico de Auditoria")
+        win.configure(bg=C["bg_panel"]); win.geometry("820x520")
+        win.resizable(True, True)
+
+        tk.Frame(win, bg=C["accent"], height=4).pack(fill="x")
+        hf = tk.Frame(win, bg=C["bg_panel"], padx=24, pady=14); hf.pack(fill="x")
+        tk.Label(hf, text="📋  Histórico de Auditoria", bg=C["bg_panel"],
+                 fg=C["text_hi"], font=("Segoe UI",13,"bold")).pack(side="left")
+        Btn(hf, "✕  Fechar", win.destroy, style="outline").pack(side="right")
+        Sep(win).pack(fill="x", padx=24)
+
+        # Treeview
+        tf = tk.Frame(win, bg=C["bg_panel"], padx=24, pady=12); tf.pack(fill="both", expand=True)
+        _tv_style()
+        cols = ("data_hr","admin","func","data_ponto","acao","horarios_ant","horarios_nov","justificativa")
+        tree = ttk.Treeview(tf, columns=cols, show="headings",
+                             style="Dark.Treeview", selectmode="browse")
+        hdrs = [("data_hr","DATA/HORA",130),("admin","ADMIN",70),
+                ("func","FUNCIONÁRIO",110),("data_ponto","DIA",90),
+                ("acao","AÇÃO",120),("horarios_ant","ANTES",130),
+                ("horarios_nov","DEPOIS",130),("justificativa","JUSTIFICATIVA",200)]
+        for col, lbl, w in hdrs:
+            tree.heading(col, text=lbl)
+            tree.column(col, width=w, anchor="w")
+        tree.tag_configure("correcao",      foreground=C["accent"])
+        tree.tag_configure("trabalho_dir",  foreground=C["warning"])
+        tree.tag_configure("ignorado",      foreground=C["text_lo"])
+        tree.tag_configure("remocao",       foreground=C["danger"])
+
+        vsb = ttk.Scrollbar(tf, orient="vertical",  command=tree.yview)
+        hsb = ttk.Scrollbar(tf, orient="horizontal", command=tree.xview)
+        tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+        vsb.pack(side="right", fill="y")
+        hsb.pack(side="bottom", fill="x")
+        tree.pack(fill="both", expand=True)
+
+        # Carrega dados
+        rows = self.db.conn.execute("""
+            SELECT a.*, b.data as data_ponto,
+                   COALESCE(f.nome, b.funcionario_raw) as func_nome
+            FROM ponto_auditoria a
+            JOIN batidas b ON b.id = a.batida_id
+            LEFT JOIN funcionarios f ON f.id = b.funcionario_id
+            ORDER BY a.criado_em DESC
+            LIMIT 500
+        """).fetchall()
+
+        for r in rows:
+            try:
+                dt_fmt = datetime.strptime(r["data_ponto"], "%Y-%m-%d").strftime("%d/%m/%Y")
+            except Exception:
+                dt_fmt = r["data_ponto"]
+            acao = r["acao"] or ""
+            tag  = ("correcao"     if "correcao" in acao else
+                    "trabalho_dir" if "direto"   in acao else
+                    "remocao"      if "remocao"  in acao else
+                    "ignorado")
+            tree.insert("", "end", values=(
+                (r["criado_em"] or "")[:16], r["admin"] or "admin",
+                r["func_nome"] or "", dt_fmt,
+                acao, r["horarios_ant"] or "", r["horarios_nov"] or "",
+                r["justificativa"] or ""),
+                tags=(tag,))
+
+        if not rows:
+            tk.Label(tf, text="Nenhum registro de auditoria ainda.",
+                     bg=C["bg_panel"], fg=C["text_lo"], font=FONT_BODY).pack(pady=20)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # APLICATIVO PRINCIPAL
 # ──────────────────────────────────────────────────────────────────────────────
+
+class PageFolhaPagamento(tk.Frame):
+    """Página de Folha de Pagamento de Horas Extras."""
+    def __init__(self, parent, db, **kw):
+        super().__init__(parent, bg=C["bg_panel"], **kw)
+        self.db = db
+        self._dados = []
+        self._sel_id = None
+        self._build()
+        self._load()
+
+    def _build(self):
+        # ── Header ────────────────────────────────────────────────────────────
+        hdr = tk.Frame(self, bg=C["bg_panel"], padx=36, pady=26); hdr.pack(fill="x")
+        lh  = tk.Frame(hdr, bg=C["bg_panel"]); lh.pack(side="left", fill="x", expand=True)
+        tk.Label(lh, text="Folha de Pagamento", bg=C["bg_panel"], fg=C["text_hi"],
+                 font=FONT_TITLE).pack(anchor="w")
+        tk.Label(lh, text="Horas extras acumuladas · Valor a pagar por funcionário",
+                 bg=C["bg_panel"], fg=C["text_mid"], font=FONT_BODY).pack(anchor="w")
+        Btn(hdr, "↻  Atualizar", self._load, style="outline").pack(side="right", pady=4)
+        Sep(self).pack(fill="x", padx=36)
+
+        # ── Resumo total (topo) ───────────────────────────────────────────────
+        res = tk.Frame(self, bg=C["bg_panel"], padx=36, pady=16); res.pack(fill="x")
+        self._total_card = tk.Frame(res, bg=C["bg_card"],
+                                     highlightbackground=C["border"], highlightthickness=1)
+        self._total_card.pack(fill="x")
+        tk.Frame(self._total_card, bg=C["accent"], height=3).pack(fill="x")
+        ti = tk.Frame(self._total_card, bg=C["bg_card"], padx=24, pady=16); ti.pack(fill="x")
+        row_t = tk.Frame(ti, bg=C["bg_card"]); row_t.pack(fill="x")
+        tk.Label(row_t, text="TOTAL A PAGAR (todos os funcionários)", bg=C["bg_card"],
+                 fg=C["text_mid"], font=(FONT_SMALL[0], 9, "bold")).pack(side="left")
+        self._lbl_total = tk.Label(row_t, text="R$ 0,00", bg=C["bg_card"],
+                                    fg=C["accent"], font=("Segoe UI", 22, "bold"))
+        self._lbl_total.pack(side="right")
+        self._lbl_resumo = tk.Label(ti, text="", bg=C["bg_card"],
+                                     fg=C["text_lo"], font=FONT_SMALL)
+        self._lbl_resumo.pack(anchor="w", pady=2)
+
+        # ── Corpo: tabela + painel lateral ────────────────────────────────────
+        body = tk.Frame(self, bg=C["bg_panel"], padx=36, pady=4); body.pack(fill="both", expand=True)
+        body.columnconfigure(0, weight=3); body.columnconfigure(1, weight=2)
+
+        # Tabela esquerda
+        lw = tk.Frame(body, bg=C["bg_panel"]); lw.grid(row=0, column=0, sticky="nsew", padx=(0,16))
+        tk.Label(lw, text="FUNCIONÁRIOS", bg=C["bg_panel"], fg=C["text_mid"],
+                 font=(FONT_SMALL[0], 9, "bold")).pack(anchor="w", pady=8)
+        tw = tk.Frame(lw, bg=C["bg_panel"]); tw.pack(fill="both", expand=True)
+        _tv_style()
+        cols = ("nome","horas","valor_hora","valor_devido","pago","a_pagar")
+        self.tree = ttk.Treeview(tw, columns=cols, show="headings",
+                                  style="Dark.Treeview", selectmode="browse")
+        hdrs = [("nome","FUNCIONÁRIO",160),("horas","SALDO HRS",90),
+                ("valor_hora","R$/HORA",80),("valor_devido","TOTAL DEVIDO",110),
+                ("pago","JÁ PAGO",100),("a_pagar","A PAGAR",100)]
+        for col, lbl, w in hdrs:
+            self.tree.heading(col, text=lbl)
+            anchor = "w" if col == "nome" else "center"
+            self.tree.column(col, width=w, anchor=anchor)
+        self.tree.tag_configure("positivo", foreground=C["success"])
+        self.tree.tag_configure("negativo", foreground=C["danger"])
+        self.tree.tag_configure("zero",     foreground=C["text_mid"])
+        self.tree.tag_configure("pago",     foreground=C["text_lo"])
+        vsb = ttk.Scrollbar(tw, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=vsb.set)
+        vsb.pack(side="right", fill="y"); self.tree.pack(fill="both", expand=True)
+        self.tree.bind("<<TreeviewSelect>>", self._on_sel)
+
+        # Painel direito
+        rw = tk.Frame(body, bg=C["bg_panel"]); rw.grid(row=0, column=1, sticky="nsew")
+
+        # Card saldo do funcionário selecionado
+        tk.Label(rw, text="FUNCIONÁRIO SELECIONADO", bg=C["bg_panel"],
+                 fg=C["text_mid"], font=(FONT_SMALL[0], 9, "bold")).pack(anchor="w", pady=6)
+        self._det_card = tk.Frame(rw, bg=C["bg_card"],
+                                   highlightbackground=C["border"], highlightthickness=1)
+        self._det_card.pack(fill="x")
+        self._det_bar = tk.Frame(self._det_card, bg=C["accent"], height=3); self._det_bar.pack(fill="x")
+        di = tk.Frame(self._det_card, bg=C["bg_card"], padx=20, pady=16); di.pack(fill="x")
+        self._lbl_det_nome  = tk.Label(di, text="Selecione um funcionário", bg=C["bg_card"],
+                                        fg=C["text_mid"], font=("Segoe UI", 12))
+        self._lbl_det_nome.pack(anchor="w")
+        self._lbl_det_valor = tk.Label(di, text="R$ --,--", bg=C["bg_card"],
+                                        fg=C["accent"], font=("Segoe UI", 32, "bold"))
+        self._lbl_det_valor.pack(anchor="w")
+        self._lbl_det_sub   = tk.Label(di, text="", bg=C["bg_card"],
+                                        fg=C["text_lo"], font=FONT_SMALL)
+        self._lbl_det_sub.pack(anchor="w")
+
+        # Formulário de pagamento
+        Sep(rw).pack(fill="x", pady=10)
+        tk.Label(rw, text="REGISTRAR PAGAMENTO", bg=C["bg_panel"],
+                 fg=C["text_mid"], font=(FONT_SMALL[0], 9, "bold")).pack(anchor="w", pady=4)
+        pag_card = tk.Frame(rw, bg=C["bg_card"],
+                             highlightbackground=C["border"], highlightthickness=1)
+        pag_card.pack(fill="x")
+        tk.Frame(pag_card, bg=C["success"], height=3).pack(fill="x")
+        pi = tk.Frame(pag_card, bg=C["bg_card"], padx=20, pady=16); pi.pack(fill="x")
+
+        # Tipo de pagamento
+        tp = tk.Frame(pi, bg=C["bg_card"]); tp.pack(fill="x", pady=4)
+        tk.Label(tp, text="Tipo:", bg=C["bg_card"], fg=C["text_mid"],
+                 font=FONT_BODY, width=9, anchor="w").pack(side="left")
+        self._v_tipo = tk.StringVar(value="total")
+        for txt, val in [("Pagamento total", "total"), ("Pagamento parcial", "parcial")]:
+            tk.Radiobutton(tp, text=txt, variable=self._v_tipo, value=val,
+                           bg=C["bg_card"], fg=C["text_hi"], selectcolor=C["bg_card"],
+                           activebackground=C["bg_card"], activeforeground=C["accent"],
+                           font=FONT_BODY, command=self._toggle_parcial).pack(side="left", padx=8)
+
+        # Valor parcial (só aparece se parcial)
+        self._fr_parcial = tk.Frame(pi, bg=C["bg_card"]); self._fr_parcial.pack(fill="x", pady=4)
+        self._fr_parcial.pack_forget()
+        vp = tk.Frame(self._fr_parcial, bg=C["bg_card"]); vp.pack(fill="x")
+        tk.Label(vp, text="Valor (R$):", bg=C["bg_card"], fg=C["text_mid"],
+                 font=FONT_BODY, width=9, anchor="w").pack(side="left")
+        self.ent_valor = tk.Entry(vp, bg=C["bg_input"], fg=C["text_hi"], font=FONT_BODY,
+                                   insertbackground=C["accent"], width=12,
+                                   highlightbackground=C["border"], highlightthickness=1)
+        self.ent_valor.pack(side="left", padx=8)
+
+        # Motivo
+        mr = tk.Frame(pi, bg=C["bg_card"]); mr.pack(fill="x", pady=8)
+        tk.Label(mr, text="Motivo:", bg=C["bg_card"], fg=C["text_mid"],
+                 font=FONT_BODY, width=9, anchor="w").pack(side="left")
+        self.ent_motivo = tk.Entry(mr, bg=C["bg_input"], fg=C["text_hi"], font=FONT_BODY,
+                                    insertbackground=C["accent"],
+                                    highlightbackground=C["border"], highlightthickness=1)
+        self.ent_motivo.pack(side="left", fill="x", expand=True)
+
+        Btn(pi, "✓  Registrar Pagamento", self._registrar_pagamento, style="success").pack(anchor="w", pady=4)
+
+        # Histórico de pagamentos
+        Sep(rw).pack(fill="x", pady=10)
+        tk.Label(rw, text="HISTÓRICO DE PAGAMENTOS", bg=C["bg_panel"],
+                 fg=C["text_mid"], font=(FONT_SMALL[0], 9, "bold")).pack(anchor="w", pady=4)
+        self._hist_frame = tk.Frame(rw, bg=C["bg_card"],
+                                     highlightbackground=C["border"], highlightthickness=1)
+        self._hist_frame.pack(fill="both", expand=True)
+        tk.Frame(self._hist_frame, bg=C["success"], height=3).pack(fill="x")
+        self._hist_inner = tk.Frame(self._hist_frame, bg=C["bg_card"], padx=16, pady=12)
+        self._hist_inner.pack(fill="both", expand=True)
+        tk.Label(self._hist_inner, text="Selecione um funcionário",
+                 bg=C["bg_card"], fg=C["text_lo"], font=("Segoe UI", 10)).pack(expand=True)
+
+    def _toggle_parcial(self):
+        if self._v_tipo.get() == "parcial":
+            self._fr_parcial.pack(fill="x", pady=4)
+        else:
+            self._fr_parcial.pack_forget()
+
+    def _fmt_brl(self, valor):
+        s = f"R$ {valor:,.2f}".replace(",","X").replace(".",",").replace("X",".")
+        return s
+
+    def _load(self):
+        self._dados = self.db.get_folha_pagamento()
+        for r in self.tree.get_children(): self.tree.delete(r)
+        total_a_pagar = 0.0
+        funcs_com_saldo = 0
+        for d in self._dados:
+            saldo_h  = d["saldo_min"] // 60
+            saldo_m  = d["saldo_min"] % 60
+            horas_txt = f"{saldo_h}h {saldo_m:02d}m"
+            vh_txt    = self._fmt_brl(d["valor_hora"])
+            vd_txt    = self._fmt_brl(d["valor_devido"])
+            pg_txt    = self._fmt_brl(d["total_pago"])
+            ap_txt    = self._fmt_brl(d["a_pagar"])
+            if d["saldo_min"] <= 0:
+                tag = "zero"
+            elif d["a_pagar"] <= 0:
+                tag = "pago"
+            else:
+                tag = "positivo"
+                total_a_pagar += d["a_pagar"]
+                funcs_com_saldo += 1
+            self.tree.insert("", "end", iid=str(d["id"]),
+                             values=(d["nome"], horas_txt, vh_txt, vd_txt, pg_txt, ap_txt),
+                             tags=(tag,))
+        # Atualiza card de total
+        self._lbl_total.config(text=self._fmt_brl(total_a_pagar))
+        self._lbl_resumo.config(text=f"{funcs_com_saldo} funcionário(s) com horas a receber"
+                                      f" · {len(self._dados)} total cadastrados")
+
+    def _on_sel(self, e=None):
+        sel = self.tree.selection()
+        if not sel: return
+        fid  = int(sel[0])
+        self._sel_id = fid
+        d    = next((x for x in self._dados if x["id"] == fid), None)
+        if not d: return
+        cor  = C["success"] if d["a_pagar"] > 0 else C["text_mid"]
+        self._det_bar.config(bg=cor)
+        self._lbl_det_nome.config(text=d["nome"], fg=C["text_hi"])
+        self._lbl_det_valor.config(text=self._fmt_brl(d["a_pagar"]), fg=cor)
+        h = d["saldo_min"] // 60; m = d["saldo_min"] % 60
+        tipo_str = "Semanal" if d["tipo_pag"] == "semana" else "Mensal"
+        self._lbl_det_sub.config(
+            text=f"{h}h {m:02d}min extras · {self._fmt_brl(d['valor_hora'])}/h"
+                 f" · Salário {tipo_str} {self._fmt_brl(d['salario'])}")
+        # Preenche valor parcial com o valor a pagar
+        self.ent_valor.delete(0,"end")
+        self.ent_valor.insert(0, f"{d['a_pagar']:.2f}".replace(".", ","))
+        # Histórico
+        hists = self.db.get_historico_pagamentos(fid)
+        self._render_historico(hists)
+
+    def _render_historico(self, hists):
+        for w in self._hist_inner.winfo_children(): w.destroy()
+        if not hists:
+            tk.Label(self._hist_inner, text="Nenhum pagamento registrado ainda.",
+                     bg=C["bg_card"], fg=C["text_lo"], font=("Segoe UI",10)).pack(expand=True)
+            return
+        canvas = tk.Canvas(self._hist_inner, bg=C["bg_card"], highlightthickness=0, height=120)
+        sb = ttk.Scrollbar(self._hist_inner, orient="vertical", command=canvas.yview)
+        inner = tk.Frame(canvas, bg=C["bg_card"])
+        inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0,0), window=inner, anchor="nw")
+        canvas.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y"); canvas.pack(side="left", fill="both", expand=True)
+        for h in hists:
+            tipo_h = h["tipo"]
+            cor    = C["success"]
+            rw = tk.Frame(inner, bg=C["bg_card"], pady=5); rw.pack(fill="x")
+            tk.Frame(rw, bg=cor, width=3).pack(side="left", fill="y", padx=8)
+            lb = tk.Frame(rw, bg=C["bg_card"]); lb.pack(side="left", fill="x", expand=True)
+            tipo_label = "Pagamento total" if tipo_h == "total" else "Pagamento parcial"
+            desc = h["descricao"] or tipo_label
+            tk.Label(lb, text=desc, bg=C["bg_card"], fg=C["text_hi"],
+                     font=FONT_SMALL, anchor="w").pack(anchor="w")
+            dt = (h["criado_em"] or "")[:16]
+            tk.Label(lb, text=f"{dt} · {tipo_label}", bg=C["bg_card"],
+                     fg=C["text_lo"], font=("Segoe UI",8), anchor="w").pack(anchor="w")
+            val_txt = self._fmt_brl(h["valor_pago"])
+            tk.Label(rw, text=val_txt, bg=C["bg_card"], fg=cor,
+                     font=("Segoe UI",12,"bold")).pack(side="right", padx=6)
+            Sep(inner).pack(fill="x")
+
+    def _registrar_pagamento(self):
+        if not self._sel_id:
+            messagebox.showwarning("Atenção", "Selecione um funcionário primeiro."); return
+        d = next((x for x in self._dados if x["id"] == self._sel_id), None)
+        if not d: return
+        tipo = self._v_tipo.get()
+        if tipo == "total":
+            valor = d["a_pagar"]
+            if valor <= 0:
+                messagebox.showinfo("Sem pendência",
+                    f"{d['nome']} não tem valor pendente a receber."); return
+        else:
+            raw = self.ent_valor.get().strip().replace(",",".")
+            try:
+                valor = float(raw)
+            except ValueError:
+                messagebox.showerror("Erro", "Digite um valor válido (ex: 150,00)"); return
+            if valor <= 0:
+                messagebox.showerror("Erro", "O valor deve ser maior que zero."); return
+        motivo = self.ent_motivo.get().strip() or ("Pagamento total" if tipo == "total" else "Pagamento parcial")
+        tipo_label = "total" if tipo == "total" else "parcial"
+        msg_pag = (
+            "Registrar pagamento de " + self._fmt_brl(valor) + " para " + d["nome"] + "?\n"
+            + "Tipo: " + tipo_label.upper() + "\nMotivo: " + motivo
+        )
+        ok = messagebox.askyesno("Confirmar pagamento", msg_pag)
+        if not ok: return
+        # Calcula minutos correspondentes
+        min_pagos = int((valor / d["valor_hora"]) * 60) if d["valor_hora"] > 0 else 0
+        self.db.registrar_pagamento_horas(self._sel_id, min_pagos, valor, tipo_label, motivo)
+        messagebox.showinfo("Sucesso",
+            f"Pagamento de {self._fmt_brl(valor)} registrado para {d['nome']}!")
+        self.ent_motivo.delete(0, "end")
+        self._load()
+        try: self.tree.selection_set(str(self._sel_id)); self._on_sel()
+        except Exception: pass
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# PÁGINA — NOTIFICAÇÕES (Etapa 4.6)
+# ──────────────────────────────────────────────────────────────────────────────
+class PageNotificacoes(tk.Frame):
+    """
+    Central de Notificações como página completa do app.
+    Inclui lista filtrada, estatísticas e ações rápidas.
+    """
+
+    def __init__(self, parent, db, app_ref=None, **kw):
+        super().__init__(parent, bg=C["bg_panel"], **kw)
+        self.db = db
+        self.app_ref = app_ref
+        self._filtro = tk.StringVar(value="todas")
+        self._build()
+
+    def _build(self):
+        if not _NOTIF_OK or not self.db.notif:
+            self._sem_suporte()
+            return
+
+        # ── Header ────────────────────────────────────────────────────────────
+        hdr = tk.Frame(self, bg=C["bg_panel"], padx=36, pady=26)
+        hdr.pack(fill="x")
+
+        left = tk.Frame(hdr, bg=C["bg_panel"])
+        left.pack(side="left", fill="y")
+        tk.Label(left, text="🔔  Notificações", bg=C["bg_panel"],
+                 fg=C["text_hi"], font=("Segoe UI", 22, "bold")).pack(anchor="w")
+        tk.Label(left, text="Central de avisos automáticos do sistema",
+                 bg=C["bg_panel"], fg=C["text_mid"],
+                 font=("Segoe UI", 11)).pack(anchor="w", pady=2)
+
+        # Botões de ação
+        right = tk.Frame(hdr, bg=C["bg_panel"])
+        right.pack(side="right", fill="y")
+        Btn(right, "Marcar todas como lidas", self._marcar_todas,
+            style="outline", icon="✓").pack(side="right", padx=6)
+        Btn(right, "Limpar antigas", self._limpar_antigas,
+            style="outline", icon="🗑").pack(side="right", padx=0)
+
+        Sep(self).pack(fill="x", padx=36)
+
+        # ── Cards de estatísticas ─────────────────────────────────────────────
+        stats_frame = tk.Frame(self, bg=C["bg_panel"], padx=36, pady=20)
+        stats_frame.pack(fill="x")
+        self._stat_cards = {}
+
+        notifs_todas = self.db.notif.db.listar(limite=500)
+        nao_lidas    = sum(1 for n in notifs_todas if not n["lida"])
+        extras = sum(1 for n in notifs_todas if n["tipo"] == TipoNotif.HORAS_EXTRAS)
+        pagamentos = sum(1 for n in notifs_todas if n["tipo"] == TipoNotif.PAGAMENTO)
+        negativas = sum(1 for n in notifs_todas if n["tipo"] == TipoNotif.HORAS_NEGATIVAS)
+
+        for i, (t, v, c) in enumerate([
+            ("Não Lidas",       nao_lidas,   C["danger"]),
+            ("Horas Extras",    extras,      C["success"]),
+            ("Pagamentos",      pagamentos,  C["purple"]),
+            ("Horas Negativas", negativas,   C["warning"]),
+        ]):
+            Card(stats_frame, t, v, color=c).grid(
+                row=0, column=i, padx=(0 if i else 0, 12), sticky="ew")
+            stats_frame.columnconfigure(i, weight=1)
+
+        Sep(self).pack(fill="x", padx=36)
+
+        # ── Filtros ───────────────────────────────────────────────────────────
+        filtro_frame = tk.Frame(self, bg=C["bg_panel"], padx=36, pady=14)
+        filtro_frame.pack(fill="x")
+        tk.Label(filtro_frame, text="Filtrar:", bg=C["bg_panel"],
+                 fg=C["text_mid"], font=FONT_SMALL).pack(side="left", padx=(0, 10))
+        for val, txt in [
+            ("todas",            "📋 Todas"),
+            ("nao_lidas",        "🔴 Não lidas"),
+            (TipoNotif.HORAS_EXTRAS,     "🟢 Horas extras"),
+            (TipoNotif.HORAS_NEGATIVAS,  "⚠ Horas negativas"),
+            (TipoNotif.PAGAMENTO,        "💵 Pagamentos"),
+            (TipoNotif.FECHAMENTO,       "📊 Fechamentos"),
+        ]:
+            rb = tk.Radiobutton(
+                filtro_frame, text=txt, variable=self._filtro, value=val,
+                bg=C["bg_panel"], fg=C["text_mid"],
+                activebackground=C["bg_panel"], activeforeground=C["accent"],
+                selectcolor=C["bg_card"], font=("Segoe UI", 9),
+                command=self._carregar)
+            rb.pack(side="left", padx=6)
+
+        # ── Lista scrollável ──────────────────────────────────────────────────
+        container = tk.Frame(self, bg=C["bg_panel"])
+        container.pack(fill="both", expand=True, padx=36, pady=(0, 20))
+
+        self._canvas = tk.Canvas(container, bg=C["bg_panel"],
+                                 highlightthickness=0, bd=0)
+        sb = ttk.Scrollbar(container, orient="vertical",
+                           command=self._canvas.yview)
+        self._canvas.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        self._canvas.pack(side="left", fill="both", expand=True)
+
+        self._lista_frame = tk.Frame(self._canvas, bg=C["bg_panel"])
+        self._win_id = self._canvas.create_window(
+            (0, 0), window=self._lista_frame, anchor="nw")
+        self._lista_frame.bind("<Configure>", lambda e: self._canvas.configure(
+            scrollregion=self._canvas.bbox("all")))
+        self._canvas.bind("<Configure>", lambda e: self._canvas.itemconfig(
+            self._win_id, width=e.width))
+        self._canvas.bind_all("<MouseWheel>", lambda e: self._canvas.yview_scroll(
+            -1 * (e.delta // 120), "units"))
+
+        # Status bar
+        self._status = tk.Label(self, text="", bg=C["bg_dark"],
+                                fg=C["text_lo"], font=FONT_SMALL, pady=6)
+        self._status.pack(fill="x", side="bottom")
+
+        self._carregar()
+
+    def _carregar(self):
+        for w in self._lista_frame.winfo_children():
+            w.destroy()
+
+        filtro = self._filtro.get()
+        apenas_nao_lidas = (filtro == "nao_lidas")
+        notifs = self.db.notif.db.listar(apenas_nao_lidas=apenas_nao_lidas, limite=200)
+
+        if filtro not in ("todas", "nao_lidas"):
+            notifs = [n for n in notifs if n["tipo"] == filtro]
+
+        self._status.config(
+            text=f"  {len(notifs)} notificações  ·  "
+                 f"{sum(1 for n in notifs if not n['lida'])} não lidas  ·  "
+                 f"Última: {notifs[0]['criado_em'][:16] if notifs else '—'}")
+
+        if not notifs:
+            tk.Label(self._lista_frame, text="🔕\n\nNenhuma notificação encontrada",
+                     bg=C["bg_panel"], fg=C["text_lo"],
+                     font=("Segoe UI", 14), justify="center",
+                     pady=60).pack(fill="x")
+            return
+
+        hoje = datetime.now().strftime("%d/%m/%Y")
+        ontem = (datetime.now() - timedelta(days=1)).strftime("%d/%m/%Y")
+
+        grupos: dict = {}
+        for n in notifs:
+            try:
+                dia = datetime.strptime(n["criado_em"], "%Y-%m-%d %H:%M:%S").strftime("%d/%m/%Y")
+            except Exception:
+                dia = "—"
+            grupos.setdefault(dia, []).append(n)
+
+        label_dia = {hoje: "Hoje", ontem: "Ontem"}
+
+        for dia, items in grupos.items():
+            # Separador de dia
+            dh = tk.Frame(self._lista_frame, bg=C["bg_panel"],
+                          padx=0, pady=8)
+            dh.pack(fill="x")
+            tk.Label(dh, text=label_dia.get(dia, dia),
+                     bg=C["bg_panel"], fg=C["text_lo"],
+                     font=("Segoe UI", 9, "bold")).pack(side="left")
+            tk.Frame(dh, bg=C["border"], height=1).pack(
+                side="left", fill="x", expand=True, padx=8)
+
+            for n in items:
+                self._card(n)
+
+    def _card(self, n):
+        tipo  = n["tipo"]
+        lida  = bool(n["lida"])
+        cor   = TipoNotif.CORES.get(tipo, C["accent"])
+        icone = TipoNotif.ICONES.get(tipo, "🔔")
+        nav   = n["navegacao"] or ""
+        bg    = C["bg_card"] if not lida else C["bg_panel"]
+
+        outer = tk.Frame(self._lista_frame, bg=C["border"], pady=1)
+        outer.pack(fill="x", pady=1)
+
+        card = tk.Frame(outer, bg=bg, padx=0, pady=10, cursor="hand2")
+        card.pack(fill="x")
+
+        barra = tk.Frame(card, bg=cor if not lida else C["border"], width=4)
+        barra.pack(side="left", fill="y", padx=(0, 16))
+
+        corpo = tk.Frame(card, bg=bg)
+        corpo.pack(side="left", fill="both", expand=True)
+
+        topo = tk.Frame(corpo, bg=bg)
+        topo.pack(fill="x")
+
+        tk.Label(topo, text=icone, bg=bg, fg=cor,
+                 font=("Segoe UI", 13)).pack(side="left", padx=(0, 8))
+        tk.Label(topo, text=n["titulo"], bg=bg,
+                 fg=C["text_hi"] if not lida else C["text_mid"],
+                 font=("Segoe UI", 11, "bold" if not lida else "normal"),
+                 anchor="w").pack(side="left", fill="x", expand=True)
+
+        try:
+            ts = datetime.strptime(n["criado_em"], "%Y-%m-%d %H:%M:%S")
+            hora_txt = ts.strftime("%H:%M")
+        except Exception:
+            hora_txt = ""
+        tk.Label(topo, text=hora_txt, bg=bg, fg=C["text_lo"],
+                 font=FONT_SMALL).pack(side="right", padx=(0, 16))
+
+        tk.Label(corpo, text=n["mensagem"], bg=bg,
+                 fg=C["text_mid"], font=FONT_SMALL,
+                 anchor="w", justify="left",
+                 wraplength=700).pack(fill="x", pady=(4, 0))
+
+        if nav:
+            nav_lbl = tk.Label(corpo, text="Ver detalhes →",
+                               bg=bg, fg=cor, font=("Segoe UI", 9),
+                               cursor="hand2")
+            nav_lbl.pack(anchor="w", pady=(4, 0))
+            nav_lbl.bind("<Button-1>",
+                         lambda e, nid=n["id"], d=nav: self._ir(nid, d))
+
+        if not lida:
+            tk.Label(card, text="●", bg=bg, fg=cor,
+                     font=("Segoe UI", 8)).pack(
+                         side="right", padx=(0, 16))
+
+        def _enter(e, f=card, b=bg):
+            f.config(bg=C["hover"])
+            for c in f.winfo_children(): _rc(c, C["hover"])
+        def _leave(e, f=card, b=bg):
+            f.config(bg=b)
+            for c in f.winfo_children(): _rc(c, b)
+        def _rc(w, bg):
+            try:
+                w.config(bg=bg)
+                for c in w.winfo_children(): _rc(c, bg)
+            except Exception: pass
+
+        card.bind("<Enter>", _enter)
+        card.bind("<Leave>", _leave)
+        card.bind("<Button-1>",
+                  lambda e, nid=n["id"], d=nav: self._ir(nid, d))
+
+    def _ir(self, notif_id: int, destino: str):
+        self.db.notif.db.marcar_lida(notif_id)
+        if self.app_ref and destino:
+            self.app_ref._navegar_notif(destino)
+        else:
+            self._carregar()
+
+    def _marcar_todas(self):
+        self.db.notif.db.marcar_todas_lidas()
+        self.db.notif._notificar_callbacks()
+        self._carregar()
+
+    def _limpar_antigas(self):
+        self.db.notif.db.deletar_antigas(7)
+        self._carregar()
+
+    def _sem_suporte(self):
+        tk.Label(self, text="🔔\n\nMódulo de notificações não disponível.\n"
+                 "Verifique se o arquivo notificacoes.py está na mesma pasta.",
+                 bg=C["bg_panel"], fg=C["text_lo"],
+                 font=("Segoe UI", 14), justify="center",
+                 pady=80).pack(expand=True)
+
+
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -2295,6 +4499,28 @@ class App(tk.Tk):
         self.geometry(f"{w}x{h}+{(sw-w)//2}+{(sh-h)//2}")
         self.db = Database(); self.current_page = None
         self._build_layout(); self._show("dashboard")
+        # ── Registra toast interno (Etapa 4.6) ───────────────────────────────
+        if _NOTIF_OK and self.db.notif:
+            self.db.notif.registrar_callback(self._on_nova_notif)
+            # Limpa notificações lidas com mais de 30 dias na inicialização
+            self.db.notif.db.deletar_antigas(30)
+
+    def _on_nova_notif(self):
+        """Chamado quando nova notificação é emitida — mostra toast interno."""
+        try:
+            notifs = self.db.notif.db.listar(apenas_nao_lidas=True, limite=1)
+            if notifs:
+                n = notifs[0]
+                ToastInterno.mostrar(
+                    root=self,
+                    titulo=n["titulo"],
+                    mensagem=n["mensagem"],
+                    tipo=n["tipo"],
+                    duracao_ms=5500,
+                    on_click=lambda dest=n["navegacao"]: self._navegar_notif(dest or "")
+                )
+        except Exception:
+            pass
 
     def _build_layout(self):
         self.sidebar = tk.Frame(self, bg=C["sidebar"], width=232)
@@ -2314,13 +4540,30 @@ class App(tk.Tk):
             ("importacao",   "↑",  "Importar Ponto"),
             ("relatorios",   "≡",  "Relatórios Importados"),
             ("calculo",      "⏱",  "Cálculo de Horas"),
-            ("banco_horas",  "⌛", "Banco de Horas"),
-            ("configuracoes","⚙",  "Configurações"),
+            ("banco_horas",    "⌛", "Banco de Horas"),
+            ("folha_pagamento","💰", "Folha de Pagamento"),
+            ("financeiro",     "💳", "Financeiro"),
+            ("validacao",      "🔍", "Validação de Ponto"),
+            ("notificacoes",   "🔔", "Notificações"),
+            ("configuracoes",  "⚙",  "Configurações"),
         ]:
             self.nav_btns[key] = self._nav_btn(nf, key, icon, label)
 
         tk.Label(self.sidebar, text=APP_VERSION, bg=C["sidebar"],
                  fg=C["text_lo"], font=FONT_SMALL).pack(side="bottom", pady=16)
+
+        # ── Botão de Notificações (sino) — Etapa 4.6 ─────────────────────────
+        if _NOTIF_OK and self.db.notif:
+            Sep(self.sidebar).pack(fill="x", padx=16, side="bottom", pady=0)
+            self._sino_btn = BotaoSino(
+                self.sidebar,
+                gerenciador=self.db.notif,
+                on_navegar=self._navegar_notif,
+                bg_color=C["sidebar"])
+            self._sino_btn.pack(side="bottom", pady=4)
+            tk.Label(self.sidebar, text="Notificações", bg=C["sidebar"],
+                     fg=C["text_lo"], font=("Segoe UI", 8)).pack(side="bottom")
+
         self.main = tk.Frame(self, bg=C["bg_panel"]); self.main.pack(side="right", fill="both", expand=True)
 
     def _nav_btn(self, parent, key, icon, label):
@@ -2342,6 +4585,23 @@ class App(tk.Tk):
             w.bind("<Button-1>", click); w.bind("<Enter>", enter); w.bind("<Leave>", leave)
         return {"frame":frame,"icon":icon_lbl,"text":text_lbl,"bar":bar}
 
+    def _navegar_notif(self, destino: str):
+        """
+        Navega para a página correta ao clicar em uma notificação.
+        destino pode ser: 'calculo', 'financeiro:3', 'banco_horas', etc.
+        """
+        if not destino:
+            return
+        partes = destino.split(":")
+        pagina = partes[0]
+        paginas_validas = {
+            "dashboard", "funcionarios", "importacao", "relatorios",
+            "calculo", "banco_horas", "folha_pagamento", "financeiro",
+            "validacao", "configuracoes"
+        }
+        if pagina in paginas_validas:
+            self._show(pagina)
+
     def _show(self, key):
         if self.current_page == key: return
         if self.current_page and self.current_page in self.nav_btns:
@@ -2359,8 +4619,12 @@ class App(tk.Tk):
             "importacao":   lambda: PageImportacao(self.main, self.db, app_ref=self),
             "relatorios":   lambda: PageRelatorios(self.main, self.db),
             "calculo":      lambda: PageCalculo(self.main, self.db),
-            "banco_horas":  lambda: PageBancoHoras(self.main, self.db),
-            "configuracoes":lambda: PageConfiguracoes(self.main, self.db),
+            "banco_horas":    lambda: PageBancoHoras(self.main, self.db),
+            "folha_pagamento":lambda: PageFolhaPagamento(self.main, self.db),
+            "financeiro":     lambda: PageFinanceiro(self.main, self.db),
+            "validacao":      lambda: PageValidacao(self.main, self.db),
+            "notificacoes":   lambda: PageNotificacoes(self.main, self.db, app_ref=self),
+            "configuracoes":  lambda: PageConfiguracoes(self.main, self.db),
         }[key]().pack(fill="both", expand=True)
 
 
