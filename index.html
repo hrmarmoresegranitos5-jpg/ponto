@@ -317,6 +317,43 @@
       font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: var(--lo);
     }
 
+    /* ── Mult badge ─────────────────────────────────────────── */
+    .mult-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      background: rgba(200,169,110,0.12); border: 1px solid rgba(200,169,110,0.3);
+      border-radius: 20px; padding: 4px 10px; font-size: 12px;
+      color: var(--gold); font-weight: 600; margin-top: 4px;
+    }
+    /* ── Admin cards ─────────────────────────────────────────── */
+    .admin-card {
+      background: var(--stone2); border-radius: 14px;
+      padding: 16px; margin-bottom: 12px;
+    }
+    .admin-section-title {
+      font-size: 11px; font-weight: 700; letter-spacing: 1px;
+      color: var(--gold); text-transform: uppercase; margin: 20px 0 10px;
+    }
+    .admin-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+    .admin-input {
+      flex: 1; background: var(--stone3); border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 10px; padding: 10px 14px; color: var(--light);
+      font-size: 15px; outline: none;
+    }
+    .admin-input:focus { border-color: rgba(200,169,110,0.5); }
+    .admin-select {
+      flex: 1; background: var(--stone3); border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 10px; padding: 10px 14px; color: var(--light);
+      font-size: 15px; outline: none; appearance: none;
+    }
+    .btn-admin-save {
+      background: var(--gold); color: #1a1610; border: none;
+      border-radius: 10px; padding: 10px 18px; font-weight: 700;
+      font-size: 14px; cursor: pointer; white-space: nowrap;
+    }
+    .btn-admin-del {
+      background: rgba(255,80,80,0.15); color: #ff6b6b; border: none;
+      border-radius: 10px; padding: 8px 14px; font-size: 13px; cursor: pointer;
+    }
     .emp-card.owner {
       border-color: rgba(200,169,110,0.2);
       background: rgba(200,169,110,0.04);
@@ -331,153 +368,336 @@
     /* ─────────────────────────────────────────────────────────────
        SALDO DO FUNCIONÁRIO
     ───────────────────────────────────────────────────────────── */
+    /* ─────────────────────────────────────────────────────────────
+       DASHBOARD — TELA RESUMO
+    ───────────────────────────────────────────────────────────── */
     #saldo {
       background: var(--stone);
       overflow-y: auto;
+      overflow-x: hidden;
       -webkit-overflow-scrolling: touch;
+      position: relative;
     }
 
-    /* Top header — locked (no back button) */
-    .saldo-topbar {
+    /* Ambient background orbs */
+    #saldo::before {
+      content: '';
+      position: fixed;
+      width: 420px; height: 420px;
+      top: -80px; right: -120px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(200,169,110,0.055) 0%, transparent 65%);
+      pointer-events: none; z-index: 0;
+    }
+
+    /* ── TOP HEADER ─────────────────────────────────────────────── */
+    .dash-header {
+      position: sticky; top: 0; z-index: 20;
+      padding: calc(14px + var(--safe-top)) 20px 14px;
       display: flex; align-items: center; gap: 14px;
-      padding: calc(18px + var(--safe-top)) 20px 16px;
-      background: var(--stone2);
-      border-bottom: 1px solid var(--border);
-      position: sticky; top: 0; z-index: 10;
-      flex-shrink: 0;
+      background: rgba(8,8,6,0.75);
+      backdrop-filter: blur(20px) saturate(1.4);
+      -webkit-backdrop-filter: blur(20px) saturate(1.4);
+      border-bottom: 1px solid rgba(255,255,255,0.04);
     }
 
-    .saldo-avatar {
-      width: 40px; height: 40px;
-      border-radius: 12px;
-      background: var(--gold-dim);
-      border: 1px solid rgba(200,169,110,0.25);
-      display: flex; align-items: center; justify-content: center;
-      font-family: 'Cormorant Garamond', serif;
-      font-size: 20px; font-weight: 700;
-      color: var(--gold);
-      flex-shrink: 0;
-      cursor: pointer; /* hidden reset: 7 taps */
+    .dash-avatar-wrap {
+      position: relative; flex-shrink: 0;
+      cursor: pointer;
       -webkit-tap-highlight-color: transparent;
     }
 
-    .saldo-topbar-info { flex: 1; min-width: 0; }
-
-    .saldo-topbar-name {
-      font-family: 'Cormorant Garamond', serif;
-      font-size: 20px; font-weight: 600; color: var(--cream);
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }
-
-    .saldo-topbar-sub {
-      font-size: 10px; color: var(--mid); letter-spacing: 1px; margin-top: 1px;
-    }
-
-    .saldo-refresh {
-      width: 36px; height: 36px;
-      background: var(--stone3);
-      border: 1px solid var(--border);
-      border-radius: 10px;
+    .dash-avatar {
+      width: 46px; height: 46px;
+      border-radius: 15px;
+      background: linear-gradient(135deg, rgba(200,169,110,0.22), rgba(200,169,110,0.08));
+      border: 1.5px solid rgba(200,169,110,0.35);
       display: flex; align-items: center; justify-content: center;
-      font-size: 15px; color: var(--mid);
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 22px; font-weight: 700;
+      color: var(--gold2);
+      box-shadow: 0 4px 16px rgba(200,169,110,0.12), inset 0 1px 0 rgba(255,255,255,0.08);
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .dash-avatar-wrap:active .dash-avatar {
+      transform: scale(0.93);
+      box-shadow: 0 2px 8px rgba(200,169,110,0.08);
+    }
+
+    .dash-avatar-dot {
+      position: absolute;
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: var(--green);
+      border: 2px solid var(--stone);
+      bottom: -1px; right: -1px;
+      box-shadow: 0 0 8px rgba(93,186,127,0.6);
+    }
+
+    .dash-header-info { flex: 1; min-width: 0; }
+
+    .dash-greeting {
+      font-size: 10px; letter-spacing: 2.5px; text-transform: uppercase;
+      color: var(--gold); opacity: 0.7; line-height: 1;
+    }
+
+    .dash-name {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 21px; font-weight: 600; color: var(--cream);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      line-height: 1.2; margin-top: 2px;
+    }
+
+    .dash-cargo {
+      font-size: 10px; color: var(--mid); letter-spacing: 0.5px; margin-top: 1px;
+    }
+
+    .dash-refresh-btn {
+      width: 38px; height: 38px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px; color: var(--mid);
       cursor: pointer; flex-shrink: 0;
       -webkit-tap-highlight-color: transparent;
       transition: all 0.15s;
+      backdrop-filter: blur(8px);
     }
-
-    .saldo-refresh:active { background: var(--stone4); color: var(--gold); }
-    .saldo-refresh.spinning { animation: spin 0.7s linear infinite; }
+    .dash-refresh-btn:active { background: rgba(200,169,110,0.1); color: var(--gold); border-color: rgba(200,169,110,0.25); }
+    .dash-refresh-btn.spinning { animation: spin 0.7s linear infinite; }
 
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    .saldo-body {
-      padding: 20px 16px calc(40px + var(--safe-bot));
+    /* ── BODY ─────────────────────────────────────────────────────── */
+    .dash-body {
+      padding: 22px 16px calc(48px + var(--safe-bot));
       display: flex; flex-direction: column; gap: 14px;
-    }
-
-    /* Hero balance card */
-    .hero-card {
-      border-radius: 22px;
-      overflow: hidden;
-      position: relative;
-      background: var(--stone3);
-      border: 1px solid var(--border);
-    }
-
-    .hero-top-bar {
-      height: 4px;
-      transition: background 0.5s;
-    }
-    .hero-top-bar.pos { background: linear-gradient(90deg, var(--green), var(--green2)); }
-    .hero-top-bar.neg { background: linear-gradient(90deg, var(--red), var(--red2)); }
-    .hero-top-bar.zer { background: var(--border); }
-
-    .hero-glow {
-      position: absolute; inset: 0; pointer-events: none; border-radius: 22px;
-      transition: opacity 0.6s;
-    }
-    .hero-glow.pos {
-      background: radial-gradient(ellipse 80% 50% at 50% 0%, rgba(93,186,127,0.1) 0%, transparent 60%);
-    }
-    .hero-glow.neg {
-      background: radial-gradient(ellipse 80% 50% at 50% 0%, rgba(201,96,96,0.1) 0%, transparent 60%);
-    }
-
-    .hero-body {
-      padding: 28px 24px 24px;
       position: relative; z-index: 1;
     }
 
-    .hero-eyebrow {
-      font-size: 10px; letter-spacing: 3px; text-transform: uppercase;
-      color: var(--mid); margin-bottom: 14px;
+    /* ── HERO CARD ────────────────────────────────────────────────── */
+    .hero-card {
+      border-radius: 26px;
+      overflow: hidden;
+      position: relative;
+      background: linear-gradient(160deg, rgba(30,30,27,0.95) 0%, rgba(18,18,16,0.98) 100%);
+      border: 1px solid rgba(255,255,255,0.07);
+      box-shadow: 0 24px 64px rgba(0,0,0,0.55), 0 1px 0 rgba(255,255,255,0.06) inset;
+      backdrop-filter: blur(24px);
     }
 
-    .hero-balance {
+    .hero-accent-bar {
+      height: 3px; width: 100%;
+      transition: background 0.6s ease;
+    }
+    .hero-accent-bar.pos { background: linear-gradient(90deg, #3a9e62, var(--green2), #3a9e62); background-size: 200%; animation: shimmer-bar 3s linear infinite; }
+    .hero-accent-bar.neg { background: linear-gradient(90deg, #a03030, var(--red2), #a03030); background-size: 200%; animation: shimmer-bar 3s linear infinite; }
+    .hero-accent-bar.zer { background: var(--border); }
+
+    @keyframes shimmer-bar {
+      0%   { background-position: 0% 0%; }
+      100% { background-position: 200% 0%; }
+    }
+
+    .hero-glow {
+      position: absolute; inset: 0; pointer-events: none; border-radius: 26px;
+      transition: opacity 0.8s;
+    }
+    .hero-glow.pos { background: radial-gradient(ellipse 100% 60% at 50% -10%, rgba(93,186,127,0.13) 0%, transparent 65%); }
+    .hero-glow.neg { background: radial-gradient(ellipse 100% 60% at 50% -10%, rgba(201,96,96,0.13) 0%, transparent 65%); }
+
+    .hero-body {
+      padding: 26px 24px 22px;
+      position: relative; z-index: 1;
+    }
+
+    .hero-label {
+      font-size: 9px; letter-spacing: 3.5px; text-transform: uppercase;
+      color: rgba(114,114,106,0.9); margin-bottom: 16px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .hero-label::after {
+      content: ''; flex: 1; height: 1px;
+      background: linear-gradient(90deg, rgba(255,255,255,0.06), transparent);
+    }
+
+    .hero-nums {
+      display: flex; align-items: baseline; gap: 4px;
+    }
+
+    .hero-h {
       font-family: 'Cormorant Garamond', serif;
-      font-size: 68px; font-weight: 700; line-height: 1;
-      letter-spacing: -3px;
-      transition: color 0.4s;
+      font-size: 80px; font-weight: 700; line-height: 0.9;
+      letter-spacing: -4px;
+      transition: color 0.5s;
     }
-    .hero-balance.pos { color: var(--green2); }
-    .hero-balance.neg { color: var(--red2); }
-    .hero-balance.zer { color: var(--mid); }
+    .hero-h.pos { color: var(--green2); }
+    .hero-h.neg { color: var(--red2); }
+    .hero-h.zer { color: rgba(114,114,106,0.6); }
 
-    .hero-desc {
-      margin-top: 12px; font-size: 14px; color: var(--mid); line-height: 1.5;
+    .hero-unit {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 28px; font-weight: 400; letter-spacing: -1px;
+      transition: color 0.5s; opacity: 0.7; margin-bottom: 6px;
     }
+    .hero-unit.pos { color: var(--green); }
+    .hero-unit.neg { color: var(--red); }
+    .hero-unit.zer { color: var(--lo); }
+
+    .hero-mins-badge {
+      margin-left: 2px; margin-bottom: 8px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 8px;
+      padding: 4px 9px;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 12px; font-weight: 500; color: var(--mid);
+      align-self: flex-end; margin-bottom: 10px;
+    }
+
+    .hero-phrase {
+      margin-top: 12px;
+      font-size: 13px; color: var(--mid); line-height: 1.55;
+    }
+    .hero-phrase strong { color: rgba(237,231,213,0.75); font-weight: 500; }
 
     .hero-updated {
-      margin-top: 6px; font-size: 11px; color: var(--lo);
+      margin-top: 8px;
+      font-size: 10px; color: var(--lo);
+      display: flex; align-items: center; gap: 5px;
+    }
+    .hero-updated::before {
+      content: ''; width: 5px; height: 5px; border-radius: 50%;
+      background: var(--lo); opacity: 0.5; flex-shrink: 0;
     }
 
-    /* Stat pills */
-    .stats-row {
-      display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+    .hero-btn-refresh {
+      margin-top: 18px;
+      width: 100%;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 14px;
+      padding: 13px;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 12px; font-weight: 500;
+      color: var(--mid);
+      letter-spacing: 1.5px; text-transform: uppercase;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      transition: all 0.2s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .hero-btn-refresh:active {
+      background: rgba(200,169,110,0.08);
+      border-color: rgba(200,169,110,0.2);
+      color: var(--gold);
+    }
+    .hero-btn-refresh .refresh-icon { font-size: 15px; }
+
+    /* ── METRICS GRID ─────────────────────────────────────────────── */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
     }
 
-    .stat-pill {
-      background: var(--stone3);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 18px 16px;
-      display: flex; flex-direction: column; gap: 6px;
+    .metric-card {
+      background: rgba(24,24,21,0.9);
+      border: 1px solid rgba(255,255,255,0.055);
+      border-radius: 20px;
+      padding: 18px 16px 16px;
+      display: flex; flex-direction: column; gap: 8px;
+      position: relative; overflow: hidden;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+      backdrop-filter: blur(16px);
+      animation: card-in 0.4s ease both;
     }
 
-    .stat-label {
-      font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: var(--lo);
+    @keyframes card-in {
+      from { opacity: 0; transform: translateY(10px); }
+      to   { opacity: 1; transform: translateY(0); }
     }
 
-    .stat-val {
+    .metric-card::before {
+      content: '';
+      position: absolute; inset: 0; border-radius: 20px;
+      background: linear-gradient(135deg, rgba(255,255,255,0.03) 0%, transparent 60%);
+      pointer-events: none;
+    }
+
+    .metric-card.wide {
+      grid-column: 1 / -1;
+      flex-direction: row;
+      align-items: center;
+      padding: 16px 20px;
+    }
+
+    .metric-icon {
+      font-size: 18px; line-height: 1;
+      margin-bottom: 2px;
+      opacity: 0.85;
+    }
+
+    .metric-label {
+      font-size: 9px; letter-spacing: 2.5px; text-transform: uppercase;
+      color: var(--lo); line-height: 1;
+    }
+
+    .metric-val {
       font-family: 'Cormorant Garamond', serif;
-      font-size: 32px; font-weight: 600; color: var(--gold);
-      line-height: 1;
+      font-size: 34px; font-weight: 600; line-height: 0.95;
+      color: var(--cream);
+      letter-spacing: -1px;
+    }
+    .metric-val.green { color: var(--green2); }
+    .metric-val.red   { color: var(--red2); }
+    .metric-val.gold  { color: var(--gold2); }
+    .metric-val.dim   { color: var(--mid); }
+
+    .metric-sub {
+      font-size: 10px; color: var(--lo); line-height: 1.3;
+      margin-top: -4px;
     }
 
-    /* History */
+    /* Wide card specific */
+    .metric-card.wide .metric-left { flex: 1; }
+    .metric-card.wide .metric-right {
+      display: flex; flex-direction: column; align-items: flex-end; gap: 3px;
+    }
+
+    .metric-status-dot {
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+      margin-bottom: 2px;
+    }
+    .metric-status-dot.ok  { background: var(--green); box-shadow: 0 0 8px rgba(93,186,127,0.5); }
+    .metric-status-dot.bad { background: var(--red);   box-shadow: 0 0 8px rgba(201,96,96,0.5); }
+    .metric-status-dot.neu { background: var(--lo); }
+
+    /* ── SECTION TITLE ────────────────────────────────────────────── */
     .section-title {
-      font-size: 10px; letter-spacing: 3px; text-transform: uppercase;
-      color: var(--lo); padding: 0 2px;
+      font-size: 9px; letter-spacing: 3px; text-transform: uppercase;
+      color: var(--lo); padding: 0 4px;
+    }
+
+    /* Glow accent on green/red metric cards */
+    .metric-card.accent-green::after {
+      content: '';
+      position: absolute; bottom: 0; left: 0; right: 0; height: 2px;
+      background: linear-gradient(90deg, transparent, var(--green), transparent);
+      opacity: 0.5; border-radius: 0 0 20px 20px;
+    }
+    .metric-card.accent-red::after {
+      content: '';
+      position: absolute; bottom: 0; left: 0; right: 0; height: 2px;
+      background: linear-gradient(90deg, transparent, var(--red), transparent);
+      opacity: 0.5; border-radius: 0 0 20px 20px;
+    }
+    .metric-card.accent-gold::after {
+      content: '';
+      position: absolute; bottom: 0; left: 0; right: 0; height: 2px;
+      background: linear-gradient(90deg, transparent, var(--gold), transparent);
+      opacity: 0.4; border-radius: 0 0 20px 20px;
     }
 
     .hist-card {
@@ -669,6 +889,65 @@
     }
     .btn-cancel:active { background: var(--stone4); }
 
+    /* ── Valor a Receber card ─────────────────────────────────── */
+    .valor-card {
+      background: var(--stone3);
+      border: 1px solid rgba(200,169,110,0.25);
+      border-radius: 18px;
+      padding: 20px 22px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-bottom: 4px;
+    }
+
+    .valor-eyebrow {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--gold);
+      opacity: 0.8;
+    }
+
+    .valor-amount {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 36px;
+      font-weight: 700;
+      color: var(--gold2);
+      line-height: 1.1;
+    }
+
+    .valor-sub {
+      font-size: 12px;
+      color: var(--mid);
+      margin-top: 2px;
+    }
+
+    .valor-detalhe {
+      display: flex;
+      gap: 10px;
+      margin-top: 8px;
+    }
+
+    .valor-pill {
+      background: var(--stone4);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 7px 12px;
+      font-size: 11px;
+      color: var(--mid);
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+
+    .valor-pill-val {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--cream);
+    }
+
     /* ── Reset confirm ────────────────────────────────────────── */
     #reset-overlay {
       position: fixed; inset: 0; z-index: 9995;
@@ -714,6 +993,294 @@
     }
     .btn-reset-cancel:active { background: var(--stone4); }
 
+    /* ─────────────────────────────────────────────────────────────
+       BOTTOM NAV (Resumo + Histórico)
+    ───────────────────────────────────────────────────────────── */
+    .bottom-nav {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      z-index: 100;
+      display: none; /* shown only when saldo screen is active */
+      height: calc(60px + var(--safe-bot));
+      padding-bottom: var(--safe-bot);
+      background: rgba(8,8,6,0.88);
+      backdrop-filter: blur(20px) saturate(1.5);
+      -webkit-backdrop-filter: blur(20px) saturate(1.5);
+      border-top: 1px solid rgba(255,255,255,0.05);
+      box-shadow: 0 -8px 32px rgba(0,0,0,0.4);
+    }
+    .bottom-nav.visible { display: flex; }
+
+    .nav-tabs {
+      display: flex; width: 100%; height: 60px;
+      align-items: stretch;
+    }
+
+    .nav-tab {
+      flex: 1;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 3px;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      position: relative;
+      transition: opacity 0.15s;
+    }
+    .nav-tab:active { opacity: 0.6; }
+
+    .nav-tab-icon {
+      font-size: 18px; line-height: 1;
+      transition: transform 0.2s cubic-bezier(0.34,1.56,0.64,1);
+    }
+    .nav-tab.active .nav-tab-icon { transform: translateY(-1px) scale(1.12); }
+
+    .nav-tab-label {
+      font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase;
+      color: var(--lo); font-weight: 500;
+      transition: color 0.2s;
+    }
+    .nav-tab.active .nav-tab-label { color: var(--gold); }
+
+    .nav-tab-pip {
+      position: absolute;
+      top: 6px;
+      width: 20px; height: 2px;
+      border-radius: 2px;
+      background: var(--gold);
+      opacity: 0; transform: scaleX(0);
+      transition: opacity 0.2s, transform 0.25s cubic-bezier(0.34,1.56,0.64,1);
+    }
+    .nav-tab.active .nav-tab-pip { opacity: 1; transform: scaleX(1); }
+
+    /* Adjust saldo-body to have bottom padding for nav */
+    .dash-body { padding-bottom: calc(72px + var(--safe-bot)); }
+
+    /* ─────────────────────────────────────────────────────────────
+       TELA HISTÓRICO
+    ───────────────────────────────────────────────────────────── */
+    #historico {
+      display: none;
+      flex-direction: column;
+      height: 100dvh;
+      background: var(--stone);
+      overflow: hidden;
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      z-index: 5;
+    }
+    #historico.active { display: flex; }
+
+    .hist-header {
+      position: sticky; top: 0; z-index: 20;
+      padding: calc(14px + var(--safe-top)) 20px 12px;
+      background: rgba(8,8,6,0.80);
+      backdrop-filter: blur(20px) saturate(1.4);
+      -webkit-backdrop-filter: blur(20px) saturate(1.4);
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      flex-shrink: 0;
+    }
+
+    .hist-header-top {
+      display: flex; align-items: center; gap: 12px; margin-bottom: 12px;
+    }
+
+    .hist-title {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 22px; font-weight: 600; color: var(--cream);
+      flex: 1;
+    }
+
+    .hist-count {
+      font-size: 11px; color: var(--mid);
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 20px;
+      padding: 3px 10px;
+    }
+
+    /* Filter pills */
+    .filter-row {
+      display: flex; gap: 7px; overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+      padding-bottom: 1px;
+    }
+    .filter-row::-webkit-scrollbar { display: none; }
+
+    .filter-pill {
+      flex-shrink: 0;
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 11px; font-weight: 500; letter-spacing: 0.5px;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      border: 1px solid rgba(255,255,255,0.07);
+      background: rgba(255,255,255,0.03);
+      color: var(--mid);
+      transition: all 0.18s;
+    }
+    .filter-pill.active {
+      background: rgba(200,169,110,0.12);
+      border-color: rgba(200,169,110,0.35);
+      color: var(--gold2);
+    }
+    .filter-pill:active { opacity: 0.65; }
+
+    /* Scroll area */
+    .hist-scroll {
+      flex: 1;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      padding: 16px 16px calc(80px + var(--safe-bot));
+    }
+
+    /* Empty state */
+    .hist-vazio {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 10px; padding: 60px 20px;
+      color: var(--lo); font-size: 13px; line-height: 1.6;
+      text-align: center;
+    }
+    .hist-vazio-icon { font-size: 36px; opacity: 0.35; }
+
+    /* Day card */
+    .dia-card {
+      background: rgba(22,22,19,0.92);
+      border: 1px solid rgba(255,255,255,0.055);
+      border-radius: 20px;
+      margin-bottom: 10px;
+      overflow: hidden;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+      animation: card-in 0.35s ease both;
+    }
+
+    .dia-card-top {
+      display: flex; align-items: center; gap: 12px;
+      padding: 14px 16px 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.045);
+    }
+
+    .dia-status-badge {
+      width: 34px; height: 34px; border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px; flex-shrink: 0;
+    }
+    .dia-status-badge.pos { background: rgba(93,186,127,0.12); }
+    .dia-status-badge.neg { background: rgba(201,96,96,0.12);  }
+    .dia-status-badge.zer { background: rgba(114,114,106,0.1); }
+
+    .dia-data-info { flex: 1; }
+
+    .dia-data {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 20px; font-weight: 600; color: var(--cream);
+      line-height: 1;
+    }
+
+    .dia-semana {
+      font-size: 10px; color: var(--mid); letter-spacing: 1px;
+      margin-top: 2px; text-transform: uppercase;
+    }
+
+    .dia-saldo-badge {
+      font-size: 13px; font-weight: 600;
+      padding: 4px 10px; border-radius: 8px;
+      flex-shrink: 0;
+    }
+    .dia-saldo-badge.pos {
+      background: rgba(93,186,127,0.12);
+      color: var(--green2);
+      border: 1px solid rgba(93,186,127,0.2);
+    }
+    .dia-saldo-badge.neg {
+      background: rgba(201,96,96,0.12);
+      color: var(--red2);
+      border: 1px solid rgba(201,96,96,0.2);
+    }
+    .dia-saldo-badge.zer {
+      background: rgba(114,114,106,0.08);
+      color: var(--lo);
+      border: 1px solid rgba(255,255,255,0.05);
+    }
+
+    .dia-body { padding: 12px 16px 14px; }
+
+    /* Horários block */
+    .dia-horarios {
+      display: flex; flex-direction: column; gap: 4px;
+      margin-bottom: 12px;
+    }
+
+    .dia-turno {
+      display: flex; align-items: center; gap: 8px;
+    }
+
+    .dia-turno-label {
+      font-size: 9px; letter-spacing: 2px; text-transform: uppercase;
+      color: var(--lo); width: 54px; flex-shrink: 0;
+    }
+
+    .dia-turno-times {
+      display: flex; align-items: center; gap: 6px;
+    }
+
+    .dia-time {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 14px; font-weight: 500; color: var(--cream);
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 7px;
+      padding: 3px 9px;
+      letter-spacing: 0.5px;
+    }
+
+    .dia-arrow {
+      color: var(--lo); font-size: 11px;
+    }
+
+    .dia-direto-tag {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 10px; color: var(--mid); letter-spacing: 1px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 6px;
+      padding: 3px 9px;
+      margin-bottom: 12px;
+    }
+
+    /* Stats row inside card */
+    .dia-stats {
+      display: grid; grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+    }
+
+    .dia-stat {
+      display: flex; flex-direction: column; gap: 3px;
+      background: rgba(255,255,255,0.025);
+      border-radius: 10px;
+      padding: 9px 10px;
+      border: 1px solid rgba(255,255,255,0.04);
+    }
+
+    .dia-stat-label {
+      font-size: 8px; letter-spacing: 2px; text-transform: uppercase;
+      color: var(--lo);
+    }
+
+    .dia-stat-val {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 18px; font-weight: 600; line-height: 1;
+      color: var(--cream);
+    }
+    .dia-stat-val.green { color: var(--green2); }
+    .dia-stat-val.red   { color: var(--red2); }
+    .dia-stat-val.dim   { color: var(--lo); }
+
+    /* Accent line bottom */
+    .dia-card.pos { border-bottom: 2px solid rgba(93,186,127,0.25); }
+    .dia-card.neg { border-bottom: 2px solid rgba(201,96,96,0.25); }
+
   </style>
 </head>
 <body>
@@ -758,24 +1325,59 @@
     </div>
   </div>
 
-  <!-- ══ SALDO DO FUNCIONÁRIO ══════════════════════════════════ -->
-  <div id="saldo" class="screen">
-    <div class="saldo-topbar">
-      <div class="saldo-avatar" id="saldo-avatar">—</div>
-      <div class="saldo-topbar-info">
-        <div class="saldo-topbar-name" id="saldo-nome">—</div>
-        <div class="saldo-topbar-sub">Banco de Horas · HR Mármores</div>
+  <!-- ══ DASHBOARD — TELA RESUMO ══════════════════════════════ -->\n  <div id="saldo" class="screen">\n    <!-- Header premium com avatar, saudação, cargo -->\n    <div class="dash-header">\n      <div class="dash-avatar-wrap" id="saldo-avatar">\n        <div class="dash-avatar" id="dash-avatar-letter">—</div>\n        <div class="dash-avatar-dot"></div>\n      </div>\n      <div class="dash-header-info">\n        <div class="dash-greeting" id="dash-greeting">Bem-vindo</div>\n        <div class="dash-name" id="saldo-nome">—</div>\n        <div class="dash-cargo" id="dash-cargo">HR Mármores · Banco de Horas</div>\n      </div>\n      <div class="dash-refresh-btn" id="btn-refresh" onclick="refreshSaldo()">↻</div>\n    </div>\n    <!-- Corpo do dashboard -->\n    <div class="dash-body" id="saldo-body">\n      <div class="spinner"></div>\n    </div>\n  </div>
+
+  <!-- ══ TELA HISTÓRICO ════════════════════════════════════════ -->
+  <div id="historico">
+    <div class="hist-header">
+      <div class="hist-header-top">
+        <div class="hist-title">Histórico</div>
+        <div class="hist-count" id="hist-count">— dias</div>
       </div>
-      <div class="saldo-refresh" id="btn-refresh" onclick="refreshSaldo()">↻</div>
+      <div class="filter-row" id="filter-row">
+        <div class="filter-pill active" data-filtro="mes"   onclick="setFiltro('mes')">Mês</div>
+        <div class="filter-pill"        data-filtro="semana" onclick="setFiltro('semana')">Semana</div>
+        <div class="filter-pill"        data-filtro="hoje"   onclick="setFiltro('hoje')">Hoje</div>
+      </div>
     </div>
-    <div class="saldo-body" id="saldo-body">
+    <div class="hist-scroll" id="hist-scroll">
       <div class="spinner"></div>
     </div>
   </div>
 
-</div>
+  <!-- ══ BOTTOM NAV ════════════════════════════════════════════ -->
+  <nav class="bottom-nav" id="bottom-nav">
+    <div class="nav-tabs">
+      <div class="nav-tab active" id="nav-resumo" onclick="irParaResumo()">
+        <div class="nav-tab-pip"></div>
+        <div class="nav-tab-icon">◈</div>
+        <div class="nav-tab-label">Resumo</div>
+      </div>
+      <div class="nav-tab" id="nav-historico" onclick="irParaHistorico()">
+        <div class="nav-tab-pip"></div>
+        <div class="nav-tab-icon">☰</div>
+        <div class="nav-tab-label">Histórico</div>
+      </div>
+      <div class="nav-tab" id="nav-admin" style="display:none" onclick="irParaAdmin()">
+        <div class="nav-tab-pip"></div>
+        <div class="nav-tab-icon">⚙️</div>
+        <div class="nav-tab-label">Admin</div>
+      </div>
+    </div>
+  </nav>
 
-<!-- Toast -->
+</div>
+<!-- ══ TELA ADMIN — MULTIPLICADORES ════════════════════════ -->
+  <div id="admin" class="screen">
+    <div style="display:flex;align-items:center;padding:16px 20px 12px;background:var(--stone2);border-bottom:1px solid rgba(255,255,255,0.06)">
+      <div onclick="fecharAdmin()" style="cursor:pointer;font-size:22px;color:var(--mid);padding:4px 12px 4px 0">←</div>
+      <div style="font-size:18px;font-weight:700;color:var(--light)">⚙️ Multiplicadores de Hora Extra</div>
+    </div>
+    <div style="flex:1;overflow-y:auto;padding:16px" id="admin-body">
+      <div class="spinner"></div>
+    </div>
+  </div>
+
 <div id="toast"></div>
 
 <!-- Confirmação de seleção -->
@@ -818,6 +1420,10 @@
 // Deixe '' se o index.html for servido pelo próprio servidor Flask.
 // Exemplo: 'https://sistema-ponto-production.up.railway.app'
 const API_BASE = '';
+
+// Chave admin para o painel de multiplicadores (owners).
+// Deixe '' se não configurou ADMIN_KEY no servidor.
+const ADMIN_KEY_LOCAL = '';
 
 // Lista de funcionários — edite para adicionar ou remover nomes.
 const FUNCIONARIOS = [
@@ -942,11 +1548,23 @@ function confirmarSelecao() {
 function abrirSaldo(nome) {
   _nomeAtual = nome;
 
-  document.getElementById('saldo-avatar').textContent = inicial(nome);
-  document.getElementById('saldo-nome').textContent   = nome;
+  // Avatar letter
+  document.getElementById('dash-avatar-letter').textContent = inicial(nome);
+  document.getElementById('saldo-nome').textContent = nome;
+
+  // Saudação dinâmica
+  const h = new Date().getHours();
+  const saudacao = h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite';
+  document.getElementById('dash-greeting').textContent = saudacao;
 
   showScreen('saldo');
+  mostrarNav();
+  setNavTab('resumo');
   carregarSaldo();
+
+  // Mostra tab admin apenas para owners
+  const isOwner = localStorage.getItem('bh_owner') === '1';
+  document.getElementById('nav-admin').style.display = isOwner ? '' : 'none';
 }
 
 async function carregarSaldo() {
@@ -995,64 +1613,402 @@ function refreshSaldo() {
   carregarSaldo();
 }
 
+// ═══════════════════════════════════════════════
+// NAVEGAÇÃO — BOTTOM NAV
+// ═══════════════════════════════════════════════
+function mostrarNav() {
+  document.getElementById('bottom-nav').classList.add('visible');
+}
+
+function ocultarNav() {
+  document.getElementById('bottom-nav').classList.remove('visible');
+}
+
+function setNavTab(aba) {
+  document.getElementById('nav-resumo').classList.toggle('active', aba === 'resumo');
+  document.getElementById('nav-historico').classList.toggle('active', aba === 'historico');
+  const navAdmin = document.getElementById('nav-admin');
+  if (navAdmin) navAdmin.classList.toggle('active', aba === 'admin');
+}
+
+function irParaResumo() {
+  if (navigator.vibrate) navigator.vibrate(4);
+  document.getElementById('historico').classList.remove('active');
+  setNavTab('resumo');
+}
+
+function irParaHistorico() {
+  if (navigator.vibrate) navigator.vibrate(4);
+  document.getElementById('historico').classList.add('active');
+  setNavTab('historico');
+  carregarHistorico();
+}
+
 function renderSaldo(d) {
   const body = document.getElementById('saldo-body');
   const cls  = d.saldo_positivo ? 'pos' : (d.saldo_min === 0 ? 'zer' : 'neg');
+  const abs_h = d.saldo_horas;
+  const abs_m = d.saldo_mins;
+  const sinal = d.saldo_positivo ? '+' : (d.saldo_min === 0 ? '' : '−');
 
-  const descMap = {
-    pos: `${d.saldo_horas}h ${d.saldo_mins}min de horas extras acumuladas`,
-    zer: 'Saldo zerado — tudo em dia',
-    neg: `${d.saldo_horas}h ${d.saldo_mins}min em débito`,
+  const fraseMap = {
+    pos: `<strong>${abs_h}h ${abs_m}min</strong> de horas extras acumuladas`,
+    zer: 'Jornada em dia — saldo zerado',
+    neg: `<strong>${abs_h}h ${abs_m}min</strong> de débito a compensar`,
   };
 
-  let histHTML;
-  if (!d.historico || d.historico.length === 0) {
-    histHTML = '<div class="hist-empty">Nenhuma movimentação ainda.<br>As horas aparecerão aqui após a importação.</div>';
-  } else {
-    histHTML = d.historico.map((m, i) => {
-      const c = m.tipo === 'credito';
-      return `
-        <div class="mov-row" style="animation-delay:${i * 0.04}s">
-          <div class="mov-icon ${c ? 'c' : 'd'}">${c ? '+' : '−'}</div>
-          <div class="mov-info">
-            <div class="mov-desc">${m.descricao || (c ? 'Horas extras' : 'Retirada')}</div>
-            <div class="mov-date">${m.data}</div>
-          </div>
-          <div class="mov-val ${c ? 'c' : 'd'}">${m.valor_fmt}</div>
-        </div>`;
-    }).join('');
-  }
+  const totalExtras  = d.historico ? d.historico.filter(m => m.tipo === 'credito').reduce((s,m) => s + m.minutos, 0) : 0;
+  const totalDebitos = d.historico ? d.historico.filter(m => m.tipo !== 'credito').reduce((s,m) => s + m.minutos, 0) : 0;
+  const diasTrab = d.historico ? d.historico.length : 0;
+
+  const fmtHM = (min) => {
+    const m = Math.abs(min);
+    return m < 60 ? `${m}min` : `${Math.floor(m/60)}h${m%60>0 ? ' '+m%60+'m' : ''}`;
+  };
+
+  const delay = (n) => `animation-delay:${n * 0.07}s`;
 
   body.innerHTML = `
-    <div class="hero-card">
-      <div class="hero-top-bar ${cls}"></div>
+    <div class="hero-card" style="${delay(0)}">
+      <div class="hero-accent-bar ${cls}"></div>
       <div class="hero-glow ${cls}"></div>
       <div class="hero-body">
-        <div class="hero-eyebrow">Saldo acumulado</div>
-        <div class="hero-balance ${cls}">${d.saldo_fmt}</div>
-        <div class="hero-desc">${descMap[cls]}</div>
+        <div class="hero-label">Saldo acumulado</div>
+        <div class="hero-nums">
+          <div class="hero-h ${cls}">${sinal}${abs_h}</div>
+          <div class="hero-unit ${cls}">h</div>
+          <div class="hero-mins-badge">${abs_m}min</div>
+        </div>
+        <div class="hero-phrase">${fraseMap[cls]}</div>
         ${d.atualizado_em ? `<div class="hero-updated">Atualizado em ${d.atualizado_em}</div>` : ''}
+        ${d.multiplicador ? `<div style="margin-top:10px"><span class="mult-badge"><span>⚡</span>${d.multiplicador}× hora extra · ${d.valor_hora_ext_fmt || ''}/h</span></div>` : ''}
+        <button class="hero-btn-refresh" onclick="refreshSaldo()">
+          <span class="refresh-icon">↻</span> Atualizar saldo
+        </button>
       </div>
     </div>
 
-    <div class="stats-row">
-      <div class="stat-pill">
-        <div class="stat-label">Horas</div>
-        <div class="stat-val">${d.saldo_horas}h</div>
+    <div class="section-title" style="${delay(1)}">Resumo do período</div>
+    <div class="metrics-grid">
+      <div class="metric-card accent-green" style="${delay(2)}">
+        <div class="metric-icon">🟢</div>
+        <div class="metric-label">Horas extras</div>
+        <div class="metric-val green">${totalExtras > 0 ? fmtHM(totalExtras) : '—'}</div>
+        <div class="metric-sub">Total creditado</div>
       </div>
-      <div class="stat-pill">
-        <div class="stat-label">Minutos</div>
-        <div class="stat-val">${d.saldo_mins}min</div>
+      <div class="metric-card accent-red" style="${delay(3)}">
+        <div class="metric-icon">🔴</div>
+        <div class="metric-label">Horas negativas</div>
+        <div class="metric-val red">${totalDebitos > 0 ? fmtHM(totalDebitos) : '—'}</div>
+        <div class="metric-sub">Total debitado</div>
       </div>
+      <div class="metric-card accent-gold" style="${delay(4)}">
+        <div class="metric-icon">📅</div>
+        <div class="metric-label">Dias no sistema</div>
+        <div class="metric-val gold">${diasTrab}</div>
+        <div class="metric-sub">Registros encontrados</div>
+      </div>
+      <div class="metric-card" style="${delay(5)}">
+        <div class="metric-icon">⚖️</div>
+        <div class="metric-label">Status</div>
+        <div class="metric-val ${cls === 'pos' ? 'green' : cls === 'neg' ? 'red' : 'dim'}" style="font-size:22px;margin-top:4px">
+          ${cls === 'pos' ? 'Positivo' : cls === 'neg' ? 'Negativo' : 'Zerado'}
+        </div>
+        <div style="display:flex;align-items:center;gap:5px;margin-top:4px">
+          <div class="metric-status-dot ${cls === 'pos' ? 'ok' : cls === 'neg' ? 'bad' : 'neu'}"></div>
+          <div class="metric-sub" style="margin-top:0">${cls === 'pos' ? 'Saldo favorável' : cls === 'neg' ? 'Compensar horas' : 'Tudo em ordem'}</div>
+        </div>
+      </div>
+      <div class="metric-card wide" style="${delay(6)}">
+        <div class="metric-left">
+          <div class="metric-label" style="margin-bottom:6px">Última atualização</div>
+          <div class="metric-val" style="font-size:20px;color:var(--mid)">${d.atualizado_em || '—'}</div>
+        </div>
+        <div class="metric-right">
+          <div class="metric-status-dot ${d.atualizado_em ? 'ok' : 'neu'}"></div>
+          <div class="metric-sub" style="text-align:right">${d.atualizado_em ? 'Sincronizado' : 'Aguardando'}</div>
+        </div>
+      </div>
+      ${d.valor_hora && d.valor_hora > 0 ? `
+      <div class="metric-card wide" style="${delay(7)}">
+        <div class="metric-left">
+          <div class="metric-label" style="margin-bottom:4px">💰 Valor a receber</div>
+          <div class="metric-val gold" style="font-size:22px">${d.a_pagar_fmt || d.valor_fmt}</div>
+          <div class="metric-sub">Calculado com multiplicador ${d.multiplicador || 1.5}×</div>
+        </div>
+        <div class="metric-right">
+          <div class="metric-sub" style="text-align:right">${d.valor_hora_ext_fmt || ''}/h</div>
+        </div>
+      </div>` : ''}
     </div>
+  \`;
+}
 
-    <div class="section-title">Últimas movimentações</div>
-    <div class="hist-card">${histHTML}</div>
-  `;
+
+// ═══════════════════════════════════════════════
+// REGISTROS DIÁRIOS
+// ═══════════════════════════════════════════════
+async function carregarRegistros() {
+  const el = document.getElementById('registros-body');
+  if (!el) return;
+
+  try {
+    const res = await fetch(API_BASE + '/api/registros-por-nome/' + encodeURIComponent(_nomeAtual));
+    if (!res.ok) throw new Error('err');
+    const lista = await res.json();
+    renderRegistros(lista);
+  } catch(e) {
+    if (el) el.innerHTML = '<div class="hist-empty">Sem registros disponíveis.</div>';
+  }
+}
+
+function renderRegistros(lista) {
+  const el = document.getElementById('registros-body');
+  if (!el) return;
+
+  if (!lista || lista.length === 0) {
+    el.innerHTML = '<div class="hist-empty">Nenhum registro encontrado ainda.</div>';
+    return;
+  }
+
+  const rows = lista.map((r, i) => {
+    const statusIcon = r.status === 'extra' ? '🟢' : r.status === 'falta' ? '🔴' : '⚪';
+    const saldoCls   = r.status === 'extra' ? 'c' : r.status === 'falta' ? 'd' : '';
+    const horariosStr = r.horarios && r.horarios.length > 0
+      ? r.horarios.join(' → ')
+      : '—';
+    const valorStr = r.extras_min > 0
+      ? `<span class="mov-val c" style="font-size:0.75rem">${r.valor_extras_fmt}</span>`
+      : '';
+
+    return `
+      <div class="mov-row reg-row" style="animation-delay:${i * 0.03}s; flex-wrap:wrap; gap:2px">
+        <div class="mov-icon" style="font-size:1rem;width:28px;height:28px">${statusIcon}</div>
+        <div class="mov-info" style="flex:1;min-width:0">
+          <div class="mov-desc" style="font-weight:600">${r.data}</div>
+          <div class="mov-date" style="font-size:0.72rem;color:#888">${horariosStr}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:1px">
+          <div class="mov-val ${saldoCls}" style="font-size:0.82rem">${r.saldo_fmt}</div>
+          <div class="mov-date" style="font-size:0.7rem">${r.trabalhados_fmt} trab.</div>
+          ${valorStr}
+        </div>
+      </div>`;
+  }).join('');
+
+  el.innerHTML = `<div class="hist-card">${rows}</div>`;
 }
 
 // ═══════════════════════════════════════════════
-// RESET SECRETO: 7 toques no avatar
+// TELA HISTÓRICO
+// ═══════════════════════════════════════════════
+let _registrosCache = null;
+let _filtroAtual = 'mes';
+
+async function carregarHistorico() {
+  const scroll = document.getElementById('hist-scroll');
+
+  // Usa cache se já tiver
+  if (_registrosCache) {
+    renderHistorico(_registrosCache);
+    return;
+  }
+
+  scroll.innerHTML = '<div class="spinner"></div>';
+
+  try {
+    const res = await fetch(API_BASE + '/api/registros-por-nome/' + encodeURIComponent(_nomeAtual) + '?limite=90');
+    if (!res.ok) throw new Error('err');
+    _registrosCache = await res.json();
+    renderHistorico(_registrosCache);
+  } catch(e) {
+    scroll.innerHTML = `
+      <div class="hist-vazio">
+        <div class="hist-vazio-icon">📡</div>
+        Sem conexão ou dados indisponíveis.<br>
+        <button class="btn-retry" onclick="_registrosCache=null;carregarHistorico()" style="margin-top:14px;width:auto;padding:10px 20px">
+          ↻ Tentar novamente
+        </button>
+      </div>`;
+  }
+}
+
+function setFiltro(f) {
+  _filtroAtual = f;
+  document.querySelectorAll('.filter-pill').forEach(p => {
+    p.classList.toggle('active', p.dataset.filtro === f);
+  });
+  if (_registrosCache) renderHistorico(_registrosCache);
+}
+
+function renderHistorico(lista) {
+  const scroll  = document.getElementById('hist-scroll');
+  const countEl = document.getElementById('hist-count');
+
+  if (!lista || lista.length === 0) {
+    countEl.textContent = '0 dias';
+    scroll.innerHTML = `
+      <div class="hist-vazio">
+        <div class="hist-vazio-icon">📋</div>
+        Nenhum registro encontrado.<br>Os dias aparecerão após a importação.
+      </div>`;
+    return;
+  }
+
+  // Filtra por período
+  const hoje = new Date();
+  const filtrado = lista.filter(r => {
+    if (!r.data) return false;
+    // data vem como YYYY-MM-DD ou DD/MM/YYYY
+    let partes;
+    if (r.data.includes('-')) {
+      partes = r.data.split('-').map(Number);
+      // YYYY-MM-DD
+    } else {
+      partes = r.data.split('/').map(Number);
+      // DD/MM/YYYY → reorder
+      partes = [partes[2], partes[1], partes[0]];
+    }
+    const d = new Date(partes[0], partes[1]-1, partes[2]);
+
+    if (_filtroAtual === 'hoje') {
+      return d.toDateString() === hoje.toDateString();
+    } else if (_filtroAtual === 'semana') {
+      const semAgo = new Date(hoje); semAgo.setDate(hoje.getDate() - 7);
+      return d >= semAgo && d <= hoje;
+    } else { // mes
+      const mesAgo = new Date(hoje); mesAgo.setDate(hoje.getDate() - 30);
+      return d >= mesAgo && d <= hoje;
+    }
+  });
+
+  countEl.textContent = filtrado.length + (filtrado.length === 1 ? ' dia' : ' dias');
+
+  if (filtrado.length === 0) {
+    scroll.innerHTML = `
+      <div class="hist-vazio">
+        <div class="hist-vazio-icon">🔍</div>
+        Nenhum registro neste período.
+      </div>`;
+    return;
+  }
+
+  const diasSemana = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+
+  const cards = filtrado.map((r, i) => {
+    const status = r.status; // 'extra' | 'falta' | 'ok'
+    const icon   = status === 'extra' ? '🟢' : status === 'falta' ? '🔴' : '⚪';
+    const cls    = status === 'extra' ? 'pos' : status === 'falta' ? 'neg' : 'zer';
+
+    // Formata data para exibição
+    let dataExib = r.data;
+    let semanaExib = '';
+    try {
+      let ano, mes, dia;
+      if (r.data.includes('-')) {
+        [ano, mes, dia] = r.data.split('-').map(Number);
+      } else {
+        [dia, mes, ano] = r.data.split('/').map(Number);
+      }
+      const dt = new Date(ano, mes-1, dia);
+      dataExib  = `${String(dia).padStart(2,'0')}/${String(mes).padStart(2,'0')}`;
+      semanaExib = diasSemana[dt.getDay()];
+    } catch(e) {}
+
+    const hrs = r.horarios || [];
+    const temAlmoco = hrs.length >= 4;
+    const direto    = hrs.length === 2;
+    const impar     = hrs.length % 2 !== 0 && hrs.length > 0;
+
+    let turnosHTML = '';
+    if (direto) {
+      turnosHTML = `
+        <div class="dia-turno">
+          <span class="dia-turno-label">Turno</span>
+          <div class="dia-turno-times">
+            <span class="dia-time">${hrs[0]}</span>
+            <span class="dia-arrow">→</span>
+            <span class="dia-time">${hrs[1]}</span>
+          </div>
+        </div>`;
+    } else if (temAlmoco) {
+      turnosHTML = `
+        <div class="dia-turno">
+          <span class="dia-turno-label">Manhã</span>
+          <div class="dia-turno-times">
+            <span class="dia-time">${hrs[0]}</span>
+            <span class="dia-arrow">→</span>
+            <span class="dia-time">${hrs[1]}</span>
+          </div>
+        </div>
+        <div class="dia-turno">
+          <span class="dia-turno-label">Tarde</span>
+          <div class="dia-turno-times">
+            <span class="dia-time">${hrs[2]}</span>
+            <span class="dia-arrow">→</span>
+            <span class="dia-time">${hrs[3]}</span>
+          </div>
+        </div>`;
+    } else if (impar) {
+      turnosHTML = hrs.map((h, idx) => `
+        <div class="dia-turno">
+          <span class="dia-turno-label">Batida ${idx+1}</span>
+          <div class="dia-turno-times">
+            <span class="dia-time">${h}</span>
+          </div>
+        </div>`).join('');
+    } else if (hrs.length === 0) {
+      turnosHTML = `<div style="font-size:11px;color:var(--lo);padding:2px 0">Sem batidas registradas</div>`;
+    }
+
+    const diretoBadge = direto
+      ? `<div class="dia-direto-tag">⚡ Trabalho direto (sem almoço)</div>`
+      : '';
+
+    const saldoBadge = r.saldo_fmt
+      ? `<div class="dia-saldo-badge ${cls}">${r.saldo_fmt}</div>`
+      : '';
+
+    const extrasVal  = r.extras_min  > 0 ? r.extras_fmt  : '—';
+    const faltasVal  = r.faltas_min  > 0 ? r.faltas_fmt  : '—';
+    const extCls     = r.extras_min  > 0 ? 'green' : 'dim';
+    const faltCls    = r.faltas_min  > 0 ? 'red'   : 'dim';
+
+    return `
+      <div class="dia-card ${cls}" style="animation-delay:${i * 0.045}s">
+        <div class="dia-card-top">
+          <div class="dia-status-badge ${cls}">${icon}</div>
+          <div class="dia-data-info">
+            <div class="dia-data">${dataExib}</div>
+            <div class="dia-semana">${semanaExib}</div>
+          </div>
+          ${saldoBadge}
+        </div>
+        <div class="dia-body">
+          ${diretoBadge}
+          <div class="dia-horarios">${turnosHTML}</div>
+          <div class="dia-stats">
+            <div class="dia-stat">
+              <div class="dia-stat-label">Trabalhado</div>
+              <div class="dia-stat-val">${r.trabalhados_fmt || '—'}</div>
+            </div>
+            <div class="dia-stat">
+              <div class="dia-stat-label">Extras</div>
+              <div class="dia-stat-val ${extCls}">${extrasVal}</div>
+            </div>
+            <div class="dia-stat">
+              <div class="dia-stat-label">Faltante</div>
+              <div class="dia-stat-val ${faltCls}">${faltasVal}</div>
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+
+  scroll.innerHTML = cards || `<div class="hist-vazio"><div class="hist-vazio-icon">📋</div>Nenhum registro.</div>`;
+}
+
+
 // ═══════════════════════════════════════════════
 document.getElementById('saldo-avatar').addEventListener('click', () => {
   _tapCount++;
@@ -1072,6 +2028,7 @@ function fecharReset() {
 function resetarDispositivo() {
   localStorage.removeItem('bh_nome');
   localStorage.removeItem('bh_owner');
+  document.getElementById('nav-admin').style.display = 'none';
   document.getElementById('reset-overlay').classList.remove('show');
   location.reload();
 }
@@ -1081,7 +2038,17 @@ function resetarDispositivo() {
 // ═══════════════════════════════════════════════
 (function init() {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js').catch(() => {});
+    navigator.serviceWorker.register('/sw.js').then(reg => {
+      reg.update();
+      reg.onupdatefound = () => {
+        const sw = reg.installing;
+        sw.onstatechange = () => {
+          if (sw.state === 'installed' && navigator.serviceWorker.controller) {
+            window.location.reload();
+          }
+        };
+      };
+    }).catch(() => {});
   }
 
   const savedName = localStorage.getItem('bh_nome');
@@ -1092,6 +2059,212 @@ function resetarDispositivo() {
   }
   // Caso contrário, fica no splash (tela padrão ativa)
 })();
+
+
+// ═══════════════════════════════════════════════
+// PAINEL ADMIN — MULTIPLICADORES
+// ═══════════════════════════════════════════════
+let _adminConfig = null;
+const DIAS_NOMES = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+function irParaAdmin() {
+  if (navigator.vibrate) navigator.vibrate(4);
+  setNavTab('admin');
+  showScreen('admin');
+  carregarAdmin();
+}
+
+function fecharAdmin() {
+  showScreen('saldo');
+  setNavTab('resumo');
+}
+
+async function carregarAdmin() {
+  const body = document.getElementById('admin-body');
+  body.innerHTML = '<div class="spinner"></div>';
+  try {
+    const headers = ADMIN_KEY_LOCAL ? { 'X-Admin-Key': ADMIN_KEY_LOCAL } : {};
+    const res = await fetch(API_BASE + '/api/admin/multiplicadores', { headers });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    _adminConfig = await res.json();
+    renderAdmin();
+  } catch (e) {
+    body.innerHTML = `<div class="offline-card">
+      <div class="offline-icon">⚠️</div>
+      <div class="offline-title">Erro ao carregar</div>
+      <div class="offline-desc">${e.message}</div>
+      <button class="btn-retry" onclick="carregarAdmin()">↻ Tentar novamente</button>
+    </div>`;
+  }
+}
+
+function renderAdmin() {
+  const body = document.getElementById('admin-body');
+  const cfg  = _adminConfig || {};
+
+  // Monta lista de funcionários para o select
+  const funcOptions = FUNCIONARIOS.map(f =>
+    `<option value="${f.nome}">${f.nome}</option>`).join('');
+
+  // Períodos cadastrados
+  const periodosHtml = (cfg.por_periodo || []).map(p => `
+    <div class="admin-card" style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div>
+        <div style="font-weight:600;color:var(--light)">${p.descricao || 'Período'}</div>
+        <div style="font-size:12px;color:var(--mid);margin-top:2px">${p.data_inicio} → ${p.data_fim}</div>
+        <div style="font-size:12px;color:var(--gold);margin-top:2px">${p.multiplicador}× ${p.func_nome ? '· ' + p.func_nome : '(todos)'}</div>
+      </div>
+      <button class="btn-admin-del" onclick="deletarPeriodo(${p.id})">🗑</button>
+    </div>
+  `).join('') || '<div style="color:var(--mid);font-size:13px">Nenhum período cadastrado.</div>';
+
+  // Funcionários com mult específico
+  const funcMultHtml = (cfg.por_funcionario || []).map(f => `
+    <div class="admin-card" style="display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div style="font-weight:600;color:var(--light)">${f.nome}</div>
+        <div style="font-size:12px;color:var(--gold)">${f.multiplicador}×</div>
+      </div>
+      <button class="btn-admin-del" onclick="deletarMultFuncionario(${f.id})">🗑</button>
+    </div>
+  `).join('') || '<div style="color:var(--mid);font-size:13px">Nenhum configurado.</div>';
+
+  // Dias da semana
+  const diasMultHtml = DIAS_NOMES.map((nome, i) => {
+    const entry = (cfg.por_dia_semana || []).find(d => d.dia_semana === i);
+    const val   = entry ? entry.multiplicador : '';
+    return `
+      <div class="admin-row">
+        <div style="width:36px;font-size:13px;color:var(--mid);font-weight:600">${nome}</div>
+        <input class="admin-input" type="number" step="0.1" min="1" max="10"
+               id="dia-mult-${i}" value="${val}" placeholder="—" style="max-width:90px"/>
+        <button class="btn-admin-save" onclick="salvarDiaSemana(${i})">✓</button>
+        ${entry ? `<button class="btn-admin-del" onclick="deletarDiaSemana(${i})">🗑</button>` : ''}
+      </div>`;
+  }).join('');
+
+  body.innerHTML = `
+    <div class="admin-section-title">Multiplicador Global Padrão</div>
+    <div class="admin-card">
+      <div style="font-size:13px;color:var(--mid);margin-bottom:10px">Aplica-se a todos que não têm regra específica.</div>
+      <div class="admin-row">
+        <input class="admin-input" type="number" step="0.1" min="1" max="10"
+               id="mult-global" value="${cfg.global || 1.5}" />
+        <button class="btn-admin-save" onclick="salvarGlobal()">Salvar</button>
+      </div>
+    </div>
+
+    <div class="admin-section-title">Por Dia da Semana</div>
+    <div class="admin-card">${diasMultHtml}</div>
+
+    <div class="admin-section-title">Por Funcionário</div>
+    ${funcMultHtml}
+    <div class="admin-card">
+      <div style="font-size:13px;color:var(--mid);margin-bottom:10px">Adicionar regra por funcionário:</div>
+      <div class="admin-row">
+        <select class="admin-select" id="func-mult-nome">${funcOptions}</select>
+        <input class="admin-input" type="number" step="0.1" min="1" max="10"
+               id="func-mult-val" placeholder="ex: 2.0" style="max-width:90px"/>
+        <button class="btn-admin-save" onclick="salvarMultFuncionario()">✓</button>
+      </div>
+    </div>
+
+    <div class="admin-section-title">Período Especial (prioridade máxima)</div>
+    ${periodosHtml}
+    <div class="admin-card">
+      <div style="font-size:13px;color:var(--mid);margin-bottom:10px">Adicionar período:</div>
+      <div class="admin-row">
+        <input class="admin-input" type="date" id="per-inicio" />
+        <input class="admin-input" type="date" id="per-fim" />
+      </div>
+      <div class="admin-row">
+        <input class="admin-input" type="number" step="0.1" min="1" max="10"
+               id="per-mult" placeholder="Multiplicador" />
+        <input class="admin-input" type="text" id="per-desc" placeholder="Descrição (opcional)" />
+      </div>
+      <div class="admin-row">
+        <select class="admin-select" id="per-func">
+          <option value="">Todos os funcionários</option>
+          ${funcOptions}
+        </select>
+        <button class="btn-admin-save" onclick="salvarPeriodo()">Salvar</button>
+      </div>
+    </div>
+    <div style="height:40px"></div>
+  `;
+}
+
+async function _adminFetch(url, method, body) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (ADMIN_KEY_LOCAL) headers['X-Admin-Key'] = ADMIN_KEY_LOCAL;
+  const res = await fetch(API_BASE + url, { method, headers, body: JSON.stringify(body) });
+  return res.json();
+}
+
+async function salvarGlobal() {
+  const mult = parseFloat(document.getElementById('mult-global').value);
+  if (!mult || mult <= 0) return toast('Valor inválido');
+  const r = await _adminFetch('/api/admin/multiplicadores/global', 'POST', { multiplicador: mult });
+  if (r.ok) { toast('✅ Multiplicador global salvo!'); carregarAdmin(); }
+  else toast('Erro: ' + (r.erro || '?'));
+}
+
+async function salvarDiaSemana(dia) {
+  const mult = parseFloat(document.getElementById('dia-mult-' + dia).value);
+  if (!mult || mult <= 0) return toast('Valor inválido');
+  const r = await _adminFetch('/api/admin/multiplicadores/dia-semana', 'POST', { dia_semana: dia, multiplicador: mult });
+  if (r.ok) { toast('✅ Dia ' + DIAS_NOMES[dia] + ' salvo!'); carregarAdmin(); }
+  else toast('Erro: ' + (r.erro || '?'));
+}
+
+async function deletarDiaSemana(dia) {
+  const r = await _adminFetch('/api/admin/multiplicadores/dia-semana/' + dia, 'DELETE');
+  if (r.ok) { toast('🗑 Removido'); carregarAdmin(); }
+}
+
+async function salvarMultFuncionario() {
+  const nome = document.getElementById('func-mult-nome').value;
+  const mult = parseFloat(document.getElementById('func-mult-val').value);
+  if (!mult || mult <= 0) return toast('Valor inválido');
+  // Busca saldo para pegar ID
+  const res = await fetch(API_BASE + '/api/saldo-por-nome/' + encodeURIComponent(nome));
+  if (!res.ok) return toast('Funcionário não encontrado');
+  const sd = await res.json();
+  // Precisamos do ID — vamos buscar via endpoint específico
+  const fid = sd.id;
+  if (!fid) return toast('ID do funcionário não encontrado. Configure o salário primeiro.');
+  const r = await _adminFetch('/api/admin/multiplicadores/funcionario', 'POST', { funcionario_id: fid, multiplicador: mult });
+  if (r.ok) { toast('✅ Salvo para ' + nome); carregarAdmin(); }
+  else toast('Erro: ' + (r.erro || '?'));
+}
+
+async function deletarMultFuncionario(fid) {
+  const headers = ADMIN_KEY_LOCAL ? {'X-Admin-Key': ADMIN_KEY_LOCAL} : {};
+  const res = await fetch(API_BASE + '/api/admin/multiplicadores/funcionario/' + fid, { method: 'DELETE', headers });
+  const r = await res.json();
+  if (r.ok) { toast('🗑 Removido'); carregarAdmin(); }
+}
+
+async function salvarPeriodo() {
+  const inicio = document.getElementById('per-inicio').value;
+  const fim    = document.getElementById('per-fim').value;
+  const mult   = parseFloat(document.getElementById('per-mult').value);
+  const desc   = document.getElementById('per-desc').value;
+  const func   = document.getElementById('per-func').value;
+  if (!inicio || !fim || !mult || mult <= 0) return toast('Preencha data início, fim e multiplicador');
+  const body = { data_inicio: inicio, data_fim: fim, multiplicador: mult, descricao: desc };
+  if (func) body.funcionario_nome = func;
+  const r = await _adminFetch('/api/admin/multiplicadores/periodo', 'POST', body);
+  if (r.ok) { toast('✅ Período salvo!'); carregarAdmin(); }
+  else toast('Erro: ' + (r.erro || '?'));
+}
+
+async function deletarPeriodo(pid) {
+  const headers = ADMIN_KEY_LOCAL ? {'X-Admin-Key': ADMIN_KEY_LOCAL} : {};
+  const res = await fetch(API_BASE + '/api/admin/multiplicadores/periodo/' + pid, { method: 'DELETE', headers });
+  const r = await res.json();
+  if (r.ok) { toast('🗑 Período removido'); carregarAdmin(); }
+}
 </script>
 </body>
 </html>
