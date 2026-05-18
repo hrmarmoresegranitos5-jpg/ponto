@@ -2199,22 +2199,62 @@
 // ⚙️  CONFIGURAÇÃO — EDITE AQUI
 // ═══════════════════════════════════════════════
 
-// URL do servidor Railway (sem barra no final).
-// Deixe '' se o index.html for servido pelo próprio servidor Flask.
-// Exemplo: 'https://sistema-ponto-production.up.railway.app'
-const API_BASE = '';
+// ─────────────────────────────────────────────────────────────────────────────
+// CONFIGURAÇÃO — Cole aqui a URL raw do seu GitHub Gist
+// Como obter: ponto.py → Configurações → GitHub Gist → Sincronizar Agora
+// Formato: https://gist.githubusercontent.com/SEU_USUARIO/ID_DO_GIST/raw/data.json
+// ─────────────────────────────────────────────────────────────────────────────
+const GIST_RAW_URL = '';
 
-// Chave admin para o painel de multiplicadores (owners).
-// Deixe '' se não configurou ADMIN_KEY no servidor.
-const ADMIN_KEY_LOCAL = '';
+// ── Cache de dados ────────────────────────────────────────────────────────────
+let _appData    = null;   // dados carregados do Gist
+let _appDataTs  = 0;      // timestamp do último fetch bem-sucedido
+const CACHE_KEY = 'bh_gist_cache_v1';
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutos
 
-// Lista de funcionários — edite para adicionar ou remover nomes.
-const FUNCIONARIOS = [
-  { nome: 'Fabricio' },
-  { nome: 'Gibs'     },
-  { nome: 'Hugo'     },
-  { nome: 'Tiago'    },
-];
+async function loadData(force = false) {
+  if (!force && _appData && (Date.now() - _appDataTs) < CACHE_TTL) return _appData;
+  const url = GIST_RAW_URL
+    ? GIST_RAW_URL.replace(/\/raw\/.*/, '/raw/data.json') + '?t=' + Date.now()
+    : null;
+  if (!url) {
+    // Tenta usar cache offline
+    const cached = localStorage.getItem(CACHE_KEY);
+    if (cached) { _appData = JSON.parse(cached); return _appData; }
+    throw new Error('not_configured');
+  }
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('http_' + res.status);
+  _appData   = await res.json();
+  _appDataTs = Date.now();
+  localStorage.setItem(CACHE_KEY, JSON.stringify(_appData));
+  // Atualiza lista de funcionários a partir do Gist
+  if (_appData.funcionarios) {
+    FUNCIONARIOS.length = 0;
+    _appData.funcionarios.forEach(f => FUNCIONARIOS.push({ nome: f.nome }));
+  }
+  return _appData;
+}
+
+function _getEmployee(nome) {
+  if (!_appData || !_appData.funcionarios) return null;
+  return _appData.funcionarios.find(
+    f => f.nome.toLowerCase().trim() === nome.toLowerCase().trim()
+  ) || null;
+}
+
+// Lista de funcionários — auto-populada pelo loadData()
+let FUNCIONARIOS = [];
+// Fallback caso o Gist ainda não tenha sido sincronizado
+(function() {
+  try {
+    const cached = localStorage.getItem(CACHE_KEY);
+    if (cached) {
+      const d = JSON.parse(cached);
+      if (d.funcionarios) d.funcionarios.forEach(f => FUNCIONARIOS.push({ nome: f.nome }));
+    }
+  } catch(e) {}
+})();
 
 // ═══════════════════════════════════════════════
 // ESTADO
@@ -2358,43 +2398,44 @@ async function carregarSaldo() {
   btn.classList.add('spinning');
 
   try {
-    const res = await fetch(API_BASE + '/api/saldo-por-nome/' + encodeURIComponent(_nomeAtual));
+    await loadData();
     btn.classList.remove('spinning');
-
-    if (!res.ok) {
-      throw new Error('not_found');
-    }
-
-    const d = await res.json();
-    renderSaldo(d);
-  } catch (err) {
-    btn.classList.remove('spinning');
-
-    if (err.message === 'not_found') {
+    const d = _getEmployee(_nomeAtual);
+    if (!d) {
       body.innerHTML = `
         <div class="offline-card">
           <div class="offline-icon">🔍</div>
           <div class="offline-title">Funcionário não encontrado</div>
-          <div class="offline-desc">O nome "${_nomeAtual}" não foi cadastrado no sistema ainda. Peça ao responsável para cadastrá-lo no programa do PC.</div>
-        </div>
-      `;
-    } else if (!API_BASE) {
+          <div class="offline-desc">O nome "${_nomeAtual}" ainda não aparece nos dados. Sincronize no programa do PC.</div>
+        </div>`;
+      return;
+    }
+    renderSaldo(d);
+  } catch (err) {
+    btn.classList.remove('spinning');
+    if (err.message === 'not_configured') {
       body.innerHTML = `
         <div class="offline-card">
           <div class="offline-icon">⚙️</div>
-          <div class="offline-title">Servidor não configurado</div>
-          <div class="offline-desc">O administrador precisa configurar a URL do servidor no programa do PC (menu Configurações → URL do Servidor) e sincronizar os dados.</div>
-        </div>
-      `;
+          <div class="offline-title">App não configurado</div>
+          <div class="offline-desc">O administrador precisa configurar o GitHub Gist no programa do PC e colar a URL neste app (constante GIST_RAW_URL no index.html).</div>
+        </div>`;
     } else {
-      body.innerHTML = `
-        <div class="offline-card">
-          <div class="offline-icon">📡</div>
-          <div class="offline-title">Sem conexão com o servidor</div>
-          <div class="offline-desc">Não foi possível carregar o saldo. Verifique se o servidor está online e sua internet está funcionando.</div>
-        </div>
-        <button class="btn-retry" onclick="carregarSaldo()">↻ Tentar novamente</button>
-      `;
+      // Tenta usar dados em cache offline
+      const d = _getEmployee(_nomeAtual);
+      if (d) {
+        renderSaldo(d);
+        const cached = _appData && _appData.atualizado_em;
+        if (cached) toast('📦 Dados offline — ' + cached);
+      } else {
+        body.innerHTML = `
+          <div class="offline-card">
+            <div class="offline-icon">📡</div>
+            <div class="offline-title">Sem conexão</div>
+            <div class="offline-desc">Não foi possível carregar os dados. Verifique sua internet.</div>
+          </div>
+          <button class="btn-retry" onclick="carregarSaldo()">↻ Tentar novamente</button>`;
+      }
     }
   }
 }
@@ -2724,19 +2765,11 @@ let _serverNotifVistas = new Set(JSON.parse(localStorage.getItem('bh_notif_serve
 
 async function _pollNotificacoesServidor() {
   try {
-    // Endpoint sem token — usa saldo-por-nome que já tem o func_id
-    const res = await fetch(API_BASE + '/api/saldo-por-nome/' + encodeURIComponent(_nomeAtual));
-    if (!res.ok) return;
-    const d = await res.json();
-    const fid = d.id;
-    if (!fid) return;
-
-    // Busca notificações via endpoint simples (sem auth — usa pin implícito pelo nome)
-    const r2 = await fetch(API_BASE + '/api/notif-publica/' + fid);
-    if (!r2.ok) return;
-    const data = await r2.json();
-    const notifs = data.notificacoes || [];
-
+    // Recarrega dados do Gist (usa cache se recente)
+    await loadData();
+    const emp = _getEmployee(_nomeAtual);
+    if (!emp) return;
+    const notifs = emp.notificacoes || [];
     notifs.forEach(n => {
       if (!_serverNotifVistas.has(n.id)) {
         _serverNotifVistas.add(n.id);
@@ -2747,15 +2780,13 @@ async function _pollNotificacoesServidor() {
         }, 1200);
       }
     });
-
-    // Persiste IDs vistos
     const arr = [..._serverNotifVistas].slice(-200);
     localStorage.setItem('bh_notif_server_ids', JSON.stringify(arr));
   } catch(e) {}
 }
 
-// Polling automático a cada 3 minutos quando o app está aberto
-setInterval(() => { if (_nomeAtual) _pollNotificacoesServidor(); }, 3 * 60 * 1000);
+// Polling automático a cada 5 minutos — recarrega dados do Gist
+setInterval(() => { if (_nomeAtual) { _appDataTs = 0; _pollNotificacoesServidor(); } }, 5 * 60 * 1000);
 
 // ═══════════════════════════════════════════════
 // TIMER DO BANNER DE HORA BONIFICADA
@@ -2940,19 +2971,19 @@ function renderFinanceiro() {
 async function carregarRegistros() {
   const el = document.getElementById('registros-body');
   if (!el) return;
-
-  if (!API_BASE) {
-    el.innerHTML = '<div class="hist-empty">⚙️ Servidor não configurado. O administrador precisa definir a URL do servidor no programa do PC.</div>';
-    return;
-  }
-
   try {
-    const res = await fetch(API_BASE + '/api/registros-por-nome/' + encodeURIComponent(_nomeAtual));
-    if (!res.ok) throw new Error('err');
-    const lista = await res.json();
-    renderRegistros(lista);
+    await loadData();
+    const emp = _getEmployee(_nomeAtual);
+    if (!emp || !emp.registros) {
+      el.innerHTML = '<div class="hist-empty">Nenhum registro encontrado ainda.</div>';
+      return;
+    }
+    renderRegistros(emp.registros);
   } catch(e) {
-    if (el) el.innerHTML = '<div class="hist-empty">📡 Não foi possível carregar o histórico. Verifique se o servidor está online.</div>';
+    // Tenta dados em cache
+    const emp = _getEmployee(_nomeAtual);
+    if (emp && emp.registros) { renderRegistros(emp.registros); return; }
+    el.innerHTML = '<div class="hist-empty">📡 Não foi possível carregar. Verifique sua internet.</div>';
   }
 }
 
@@ -3011,11 +3042,13 @@ async function carregarHistorico() {
   scroll.innerHTML = '<div class="spinner"></div>';
 
   try {
-    const res = await fetch(API_BASE + '/api/registros-por-nome/' + encodeURIComponent(_nomeAtual) + '?limite=90');
-    if (!res.ok) throw new Error('err');
-    _registrosCache = await res.json();
+    await loadData();
+    const emp = _getEmployee(_nomeAtual);
+    _registrosCache = (emp && emp.registros) ? emp.registros : [];
     renderHistorico(_registrosCache);
   } catch(e) {
+    const emp = _getEmployee(_nomeAtual);
+    if (emp && emp.registros) { _registrosCache = emp.registros; renderHistorico(_registrosCache); return; }
     scroll.innerHTML = `
       <div class="hist-vazio">
         <div class="hist-vazio-icon">📡</div>
@@ -3278,21 +3311,18 @@ function fecharAdmin() {
 
 async function carregarAdmin() {
   const body = document.getElementById('admin-body');
-  body.innerHTML = '<div class="spinner"></div>';
-  try {
-    const headers = ADMIN_KEY_LOCAL ? { 'X-Admin-Key': ADMIN_KEY_LOCAL } : {};
-    const res = await fetch(API_BASE + '/api/admin/multiplicadores', { headers });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    _adminConfig = await res.json();
-    renderAdmin();
-  } catch (e) {
-    body.innerHTML = `<div class="offline-card">
-      <div class="offline-icon">⚠️</div>
-      <div class="offline-title">Erro ao carregar</div>
-      <div class="offline-desc">${e.message}</div>
-      <button class="btn-retry" onclick="carregarAdmin()">↻ Tentar novamente</button>
+  body.innerHTML = `
+    <div class="offline-card" style="margin:24px 20px">
+      <div class="offline-icon">⚙️</div>
+      <div class="offline-title">Painel de Multiplicadores</div>
+      <div class="offline-desc" style="text-align:left;line-height:1.7">
+        Os multiplicadores agora são configurados diretamente no programa do PC.<br><br>
+        <strong style="color:var(--gold)">Como configurar:</strong><br>
+        • Abra o <strong>ponto.py</strong> no computador<br>
+        • Vá na aba <strong>Banco de Horas</strong> → edite o multiplicador do funcionário<br>
+        • Clique em <strong>Sincronizar</strong> → os dados atualizam aqui automaticamente
+      </div>
     </div>`;
-  }
 }
 
 function renderAdmin() {
@@ -3423,12 +3453,9 @@ async function salvarMultFuncionario() {
   const nome = document.getElementById('func-mult-nome').value;
   const mult = parseFloat(document.getElementById('func-mult-val').value);
   if (!mult || mult <= 0) return toast('Valor inválido');
-  // Busca saldo para pegar ID
-  const res = await fetch(API_BASE + '/api/saldo-por-nome/' + encodeURIComponent(nome));
-  if (!res.ok) return toast('Funcionário não encontrado');
-  const sd = await res.json();
-  // Precisamos do ID — vamos buscar via endpoint específico
-  const fid = sd.id;
+  // Admin via servidor desativado — gerencie pelo ponto.py
+  return toast('Configure multiplicadores no programa do PC.');
+  const fid = null;
   if (!fid) return toast('ID do funcionário não encontrado. Configure o salário primeiro.');
   const r = await _adminFetch('/api/admin/multiplicadores/funcionario', 'POST', { funcionario_id: fid, multiplicador: mult });
   if (r.ok) { toast('✅ Salvo para ' + nome); carregarAdmin(); }

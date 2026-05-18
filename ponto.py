@@ -60,21 +60,23 @@ CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ponto_co
 
 # ── Leitura/gravação da configuração de nuvem ────────────────────────────────
 def _cfg_load() -> dict:
-    """Lê SERVIDOR_URL e ADMIN_KEY do ponto_config.ini (ou variáveis de ambiente)."""
-    cfg = {"servidor_url": "", "admin_key": ""}
+    """Lê configurações de nuvem do ponto_config.ini (ou variáveis de ambiente)."""
+    cfg = {"github_token": "", "gist_id": "", "servidor_url": "", "admin_key": ""}
     if _CONFIGPARSER_OK and os.path.exists(CONFIG_FILE):
         p = _configparser.ConfigParser()
         p.read(CONFIG_FILE, encoding="utf-8")
         sec = p["nuvem"] if "nuvem" in p else {}
+        cfg["github_token"] = sec.get("github_token", "").strip()
+        cfg["gist_id"]      = sec.get("gist_id",      "").strip()
         cfg["servidor_url"] = sec.get("servidor_url", "").strip()
         cfg["admin_key"]    = sec.get("admin_key",    "").strip()
-    # Variáveis de ambiente têm prioridade
-    cfg["servidor_url"] = os.environ.get("SERVIDOR_URL", cfg["servidor_url"]).strip()
-    cfg["admin_key"]    = os.environ.get("ADMIN_KEY",    cfg["admin_key"]   ).strip()
+    cfg["github_token"] = os.environ.get("GITHUB_TOKEN", cfg["github_token"]).strip()
+    cfg["gist_id"]      = os.environ.get("GIST_ID",      cfg["gist_id"]     ).strip()
     return cfg
 
 
-def _cfg_save(servidor_url: str, admin_key: str):
+def _cfg_save(servidor_url: str = "", admin_key: str = "",
+              github_token: str = "", gist_id: str = ""):
     """Salva as configurações de nuvem no ponto_config.ini."""
     if not _CONFIGPARSER_OK:
         return
@@ -83,67 +85,242 @@ def _cfg_save(servidor_url: str, admin_key: str):
         p.read(CONFIG_FILE, encoding="utf-8")
     if "nuvem" not in p:
         p["nuvem"] = {}
-    p["nuvem"]["servidor_url"] = servidor_url.strip()
-    p["nuvem"]["admin_key"]    = admin_key.strip()
+    if github_token:
+        p["nuvem"]["github_token"] = github_token.strip()
+    if gist_id:
+        p["nuvem"]["gist_id"]      = gist_id.strip()
+    if servidor_url:
+        p["nuvem"]["servidor_url"] = servidor_url.strip()
+    if admin_key:
+        p["nuvem"]["admin_key"]    = admin_key.strip()
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         p.write(f)
 
 
 # ── Sincronização ─────────────────────────────────────────────────────────────
 def sincronizar_nuvem(db) -> tuple:
+    """Alias para sincronizar_gist — mantido para compatibilidade."""
+    return sincronizar_gist(db)
+
+
+def _fmt_saldo_min(saldo_min: int) -> str:
+    h, m = divmod(abs(saldo_min), 60)
+    sinal = "+" if saldo_min >= 0 else "-"
+    return f"{sinal}{h}h{m:02d}"
+
+
+def _brl(v: float) -> str:
+    return "R$ {:,.2f}".format(v).replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def sincronizar_gist(db) -> tuple:
     """
-    Envia saldo + últimos movimentos de todos os funcionários para o servidor.
-    Retorna (True, mensagem) em sucesso ou (False, erro) em falha.
+    Compila todos os dados e empurra um JSON para o GitHub Gist.
+    O index.html lê direto do Gist — sem servidor necessário.
     """
+    import json as _json
+
     if not _REQUESTS_OK:
         return False, "Biblioteca 'requests' não instalada.\nExecute:  pip install requests"
 
-    cfg = _cfg_load()
-    url = cfg["servidor_url"]
-    key = cfg["admin_key"]
+    cfg   = _cfg_load()
+    token = cfg.get("github_token", "")
+    gist_id = cfg.get("gist_id", "")
 
-    if not url:
+    if not token:
         return False, (
-            "URL do servidor não configurada.\n"
-            "Vá em Configurações → Nuvem e informe a URL do Railway."
+            "Token do GitHub não configurado.\n"
+            "Vá em Configurações → GitHub Gist e informe o token."
         )
 
-    payload = {"funcionarios": []}
+    now_str = datetime.now().strftime("%d/%m/%Y %H:%M")
+    payload = {"versao": 1, "atualizado_em": now_str, "funcionarios": []}
+
     for func in db.get_funcionarios(apenas_ativos=False):
-        fid       = func["id"]
-        saldo, movs = db.get_banco_horas_func(fid)
+        fid  = func["id"]
+        nome = func["nome"]
+        sal  = func["salario"] or 0
+        tipo = func["tipo_pag"] or "mes"
+        jorn = func["jornada_h"] or 8.0
+
+        if tipo == "hora":
+            valor_hora = sal
+        elif tipo == "semana":
+            valor_hora = sal / (jorn * 5) if jorn else 0
+        else:
+            valor_hora = sal / (jorn * 22) if jorn else 0
+
+        mult           = 1.5
+        valor_hora_ext = valor_hora * mult
+        saldo_min, movs = db.get_banco_horas_func(fid)
+        valor_a_receber = (saldo_min / 60.0) * valor_hora_ext if saldo_min > 0 else 0
+
+        try:
+            row = db.conn.execute(
+                "SELECT COALESCE(SUM(valor_pago),0) as total FROM pagamentos_horas WHERE funcionario_id=?",
+                (fid,)).fetchone()
+            total_pago = row["total"] if row else 0
+        except Exception:
+            total_pago = 0
+        a_pagar = max(0, valor_a_receber - total_pago)
+
+        # Histórico de movimentos do banco de horas
+        historico = []
+        for m in movs:
+            is_cred = m["tipo"] == "credito"
+            mins    = m["minutos"]
+            h2, mi  = divmod(abs(mins), 60)
+            fmt     = ("+{h}h{m:02d}".format(h=h2, m=mi) if is_cred
+                       else "-{h}h{m:02d}".format(h=h2, m=mi))
+            historico.append({
+                "tipo":      m["tipo"],
+                "minutos":   mins,
+                "valor_fmt": fmt,
+                "descricao": m["descricao"] or "",
+                "data":      (m["criado_em"] or "")[:16],
+            })
+
+        # Registros diários de batidas (últimos 90 dias)
+        registros = []
+        try:
+            rows = db.conn.execute("""
+                SELECT data, horarios, qtd_batidas
+                FROM batidas
+                WHERE funcionario_id=? AND tem_erro=0
+                ORDER BY data DESC LIMIT 90
+            """, (fid,)).fetchall()
+
+            jornada_min = int(jorn * 60)
+
+            def _hm(t):
+                try:
+                    hh, mm = t.split(":")
+                    return int(hh) * 60 + int(mm)
+                except Exception:
+                    return 0
+
+            def _fmm(m):
+                return "{:02d}:{:02d}".format(m // 60, m % 60)
+
+            for r in rows:
+                hs_raw  = r["horarios"] or ""
+                horarios = [h.strip() for h in hs_raw.split(",") if h.strip()]
+                qtd      = len(horarios)
+                trab     = 0
+                if qtd == 2:
+                    trab = max(0, _hm(horarios[1]) - _hm(horarios[0]))
+                elif qtd >= 4:
+                    trab  = max(0, _hm(horarios[1]) - _hm(horarios[0]))
+                    trab += max(0, _hm(horarios[3]) - _hm(horarios[2]))
+                elif qtd > 0:
+                    for ii in range(0, qtd - 1, 2):
+                        trab += max(0, _hm(horarios[ii+1]) - _hm(horarios[ii]))
+
+                saldo_dia = trab - jornada_min
+                extras    = max(0,  saldo_dia)
+                faltas    = max(0, -saldo_dia)
+                valor_ex  = round((extras / 60.0) * valor_hora_ext, 2)
+
+                registros.append({
+                    "data":             r["data"],
+                    "horarios":         horarios,
+                    "trabalhados_fmt":  _fmm(trab),
+                    "trabalhados_min":  trab,
+                    "jornada_fmt":      _fmm(jornada_min),
+                    "extras_min":       extras,
+                    "extras_fmt":       _fmm(extras),
+                    "faltas_min":       faltas,
+                    "faltas_fmt":       _fmm(faltas),
+                    "saldo_min":        saldo_dia,
+                    "saldo_fmt":        ("{sign}{fmt}".format(
+                                         sign="+" if saldo_dia >= 0 else "-",
+                                         fmt=_fmm(abs(saldo_dia)))),
+                    "status":           ("extra" if extras > 0
+                                         else ("falta" if faltas > 0 else "ok")),
+                    "valor_extras":     valor_ex,
+                    "valor_extras_fmt": _brl(valor_ex),
+                    "multiplicador":    mult,
+                })
+        except Exception:
+            pass
+
         payload["funcionarios"].append({
-            "nome":       func["nome"],
-            "pin":        func["pin"] if "pin" in func.keys() else None,
-            "saldo_min":  saldo,
-            "salario":    func["salario"],
-            "tipo_pag":   func["tipo_pag"],
-            "jornada_h":  func["jornada_h"],
-            "movimentos": [
-                {
-                    "tipo":       m["tipo"],
-                    "minutos":    m["minutos"],
-                    "descricao":  m["descricao"] or "",
-                    "referencia": m["referencia"] or "",
-                    "criado_em":  m["criado_em"],
-                }
-                for m in movs
-            ],
+            "id":               fid,
+            "nome":             nome,
+            "saldo_min":        saldo_min,
+            "saldo_fmt":        _fmt_saldo_min(saldo_min),
+            "saldo_horas":      abs(saldo_min) // 60,
+            "saldo_mins":       abs(saldo_min) % 60,
+            "saldo_positivo":   saldo_min >= 0,
+            "atualizado_em":    now_str,
+            "historico":        historico,
+            "registros":        registros,
+            "multiplicador":    mult,
+            "valor_fmt":        _brl(valor_a_receber),
+            "valor_hora_ext_fmt": _brl(valor_hora_ext),
+            "total_pago_fmt":   _brl(total_pago),
+            "a_pagar_fmt":      _brl(a_pagar),
+            "notificacoes":     [],
         })
 
-    endpoint = url.rstrip("/") + "/api/admin/sincronizar"
-    headers  = {"Content-Type": "application/json"}
-    if key:
-        headers["X-Admin-Key"] = key
+    content = _json.dumps(payload, ensure_ascii=False, indent=2)
+    files_data = {"data.json": {"content": content}}
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github+json",
+        "Content-Type": "application/json",
+    }
 
     try:
-        resp = _requests.post(endpoint, json=payload, headers=headers, timeout=15)
-        if resp.status_code == 200:
-            data = resp.json()
-            return True, f"✔ Sincronizado! {data.get('atualizados', '?')} funcionário(s) atualizados."
+        if gist_id:
+            resp = _requests.patch(
+                f"https://api.github.com/gists/{gist_id}",
+                json={"files": files_data},
+                headers=headers,
+                timeout=20,
+            )
+        else:
+            resp = _requests.post(
+                "https://api.github.com/gists",
+                json={
+                    "description": "Sistema de Ponto HR — Dados dos Funcionários",
+                    "public": True,
+                    "files": files_data,
+                },
+                headers=headers,
+                timeout=20,
+            )
+            if resp.status_code == 201:
+                data_r   = resp.json()
+                new_id   = data_r["id"]
+                raw_url  = data_r["files"]["data.json"]["raw_url"].rsplit("/", 1)[0]
+                _cfg_save(github_token=token, gist_id=new_id)
+                return True, (
+                    f"✔ Gist criado com sucesso!\n"
+                    f"ID do Gist: {new_id}\n\n"
+                    f"Cole a URL abaixo no index.html (GIST_RAW_URL):\n"
+                    f"https://gist.githubusercontent.com/{_github_user(token)}/{new_id}/raw/data.json"
+                )
+
+        if resp.status_code in (200, 201):
+            n = len(payload["funcionarios"])
+            return True, f"✔ Sincronizado! {n} funcionário(s) atualizados no Gist."
         return False, f"Erro {resp.status_code}: {resp.text[:300]}"
     except Exception as e:
         return False, f"Falha na conexão:\n{e}"
+
+
+def _github_user(token: str) -> str:
+    """Descobre o login do token."""
+    try:
+        r = _requests.get(
+            "https://api.github.com/user",
+            headers={"Authorization": f"token {token}", "Accept": "application/vnd.github+json"},
+            timeout=8,
+        )
+        return r.json().get("login", "USER") if r.status_code == 200 else "USER"
+    except Exception:
+        return "USER"
 
 
 def enviar_notificacao_servidor(func_id=None, tipo="info", titulo="", mensagem="", icone="🔔") -> bool:
@@ -2365,30 +2542,43 @@ class PageConfiguracoes(tk.Frame):
 
         cfg = _cfg_load()
 
-        # URL do servidor
-        row_url = tk.Frame(cloud_card, bg=C["bg_card"], padx=20, pady=12); row_url.pack(fill="x")
-        tk.Label(row_url, text="URL do Servidor (Railway)", bg=C["bg_card"],
-                 fg=C["text_mid"], font=FONT_BODY, width=26, anchor="w").pack(side="left")
-        self._url_var = tk.StringVar(value=cfg["servidor_url"])
-        ent_url = tk.Entry(row_url, textvariable=self._url_var, bg=C["bg_input"],
+        # ── Instrução rápida ─────────────────────────────────────────────────
+        info_row = tk.Frame(cloud_card, bg="#0d1a0d", padx=20, pady=10); info_row.pack(fill="x")
+        tk.Label(info_row,
+                 text=(
+                     "ℹ  GitHub Gist é gratuito e não precisa de servidor.  "
+                     "Gere um token em: github.com/settings/tokens  "
+                     "(escopo: gist)"
+                 ),
+                 bg="#0d1a0d", fg="#7dd47d", font=FONT_SMALL, wraplength=640, justify="left"
+                 ).pack(anchor="w")
+
+        Sep(cloud_card).pack(fill="x", padx=20)
+
+        # GitHub Personal Access Token
+        row_tok = tk.Frame(cloud_card, bg=C["bg_card"], padx=20, pady=12); row_tok.pack(fill="x")
+        tk.Label(row_tok, text="GitHub Token (PAT)", bg=C["bg_card"],
+                 fg=C["text_mid"], font=FONT_BODY, width=22, anchor="w").pack(side="left")
+        self._token_var = tk.StringVar(value=cfg.get("github_token", ""))
+        ent_tok = tk.Entry(row_tok, textvariable=self._token_var, bg=C["bg_input"],
                            fg=C["text_hi"], font=FONT_MONO, insertbackground=C["accent"],
-                           relief="flat", width=46)
-        ent_url.pack(side="left", padx=8)
-        tk.Label(row_url, text="ex: https://sistema-ponto-production.up.railway.app",
+                           relief="flat", width=50, show="●")
+        ent_tok.pack(side="left", padx=8)
+        tk.Label(row_tok, text="github.com/settings/tokens → Classic → scope: gist",
                  bg=C["bg_card"], fg=C["text_lo"], font=FONT_SMALL).pack(side="left")
 
         Sep(cloud_card).pack(fill="x", padx=20)
 
-        # Admin Key
-        row_key = tk.Frame(cloud_card, bg=C["bg_card"], padx=20, pady=12); row_key.pack(fill="x")
-        tk.Label(row_key, text="ADMIN_KEY (opcional)", bg=C["bg_card"],
-                 fg=C["text_mid"], font=FONT_BODY, width=26, anchor="w").pack(side="left")
-        self._key_var = tk.StringVar(value=cfg["admin_key"])
-        ent_key = tk.Entry(row_key, textvariable=self._key_var, bg=C["bg_input"],
-                           fg=C["text_hi"], font=FONT_MONO, insertbackground=C["accent"],
-                           relief="flat", width=46, show="●")
-        ent_key.pack(side="left", padx=8)
-        tk.Label(row_key, text="Deve ser a mesma do Railway → Variables → ADMIN_KEY",
+        # Gist ID
+        row_gist = tk.Frame(cloud_card, bg=C["bg_card"], padx=20, pady=12); row_gist.pack(fill="x")
+        tk.Label(row_gist, text="ID do Gist", bg=C["bg_card"],
+                 fg=C["text_mid"], font=FONT_BODY, width=22, anchor="w").pack(side="left")
+        self._gist_var = tk.StringVar(value=cfg.get("gist_id", ""))
+        ent_gist = tk.Entry(row_gist, textvariable=self._gist_var, bg=C["bg_input"],
+                            fg=C["text_hi"], font=FONT_MONO, insertbackground=C["accent"],
+                            relief="flat", width=50)
+        ent_gist.pack(side="left", padx=8)
+        tk.Label(row_gist, text="Deixe vazio → criado automaticamente na 1ª sincronização",
                  bg=C["bg_card"], fg=C["text_lo"], font=FONT_SMALL).pack(side="left")
 
         Sep(cloud_card).pack(fill="x", padx=20)
@@ -2401,7 +2591,7 @@ class PageConfiguracoes(tk.Frame):
 
         Btn(row_btn, "Sincronizar Agora", cmd=self._sync_manual,
             style="primary", icon="↑").pack(side="right")
-        Btn(row_btn, "Salvar URL / Chave", cmd=self._salvar_cfg,
+        Btn(row_btn, "Salvar Token / ID", cmd=self._salvar_cfg,
             style="secondary", icon="💾").pack(side="right", padx=8)
 
         # Aviso requests
@@ -2446,20 +2636,29 @@ class PageConfiguracoes(tk.Frame):
                 Sep(card).pack(fill="x", padx=20)
 
     def _salvar_cfg(self):
-        _cfg_save(self._url_var.get(), self._key_var.get())
+        _cfg_save(github_token=self._token_var.get(), gist_id=self._gist_var.get())
         self._sync_status.config(text="✔ Configuração salva!", fg=C["success"])
         self.after(3000, lambda: self._sync_status.config(text=""))
 
     def _sync_manual(self):
-        _cfg_save(self._url_var.get(), self._key_var.get())
+        _cfg_save(github_token=self._token_var.get(), gist_id=self._gist_var.get())
         self._sync_status.config(text="Sincronizando…", fg=C["text_mid"])
         self.update_idletasks()
 
         def _run():
-            ok, msg = sincronizar_nuvem(self.db)
+            ok, msg = sincronizar_gist(self.db)
             color = C["success"] if ok else C["danger"]
-            self._sync_status.config(text=msg, fg=color)
-            self.after(6000, lambda: self._sync_status.config(text=""))
+            if ok and "Gist criado" in msg:
+                # Atualiza campo com o novo ID
+                import re
+                m = re.search(r"ID do Gist: ([a-f0-9]+)", msg)
+                if m:
+                    self._gist_var.set(m.group(1))
+                import tkinter.messagebox as _mb
+                _mb.showinfo("Gist Criado!", msg)
+                msg = "✔ Gist criado! Veja a mensagem."
+            self._sync_status.config(text=msg[:80], fg=color)
+            self.after(8000, lambda: self._sync_status.config(text=""))
 
         self.after(50, _run)
 
