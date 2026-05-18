@@ -229,6 +229,32 @@
       padding: 60px; color: var(--lo); font-size: 13px;
     }
 
+    /* Estado vazio / erro na tela de seleção */
+    .sel-state {
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; text-align: center;
+      padding: 48px 24px; gap: 12px; flex: 1;
+    }
+    .sel-state-icon {
+      font-size: 36px; opacity: 0.7; margin-bottom: 4px;
+    }
+    .sel-state-title {
+      font-size: 15px; font-weight: 600; color: var(--cream); letter-spacing: 0.01em;
+    }
+    .sel-state-desc {
+      font-size: 13px; color: var(--lo); line-height: 1.6; max-width: 280px;
+    }
+    .sel-state-btn {
+      margin-top: 8px;
+      background: linear-gradient(135deg, var(--gold2), var(--gold));
+      color: #1a1410; font-size: 13px; font-weight: 700;
+      border: none; border-radius: 30px; padding: 11px 24px;
+      cursor: pointer; letter-spacing: 0.03em;
+      -webkit-tap-highlight-color: transparent;
+      transition: opacity 0.2s;
+    }
+    .sel-state-btn:active { opacity: 0.75; }
+
     /* Employee card */
     .emp-card {
       position: relative;
@@ -2293,10 +2319,63 @@ function irParaSelecao() {
 }
 
 // ═══════════════════════════════════════════════
-// SELEÇÃO DE FUNCIONÁRIO (lista estática — sem API)
+// SELEÇÃO DE FUNCIONÁRIO
 // ═══════════════════════════════════════════════
-function carregarFuncionarios() {
+async function carregarFuncionarios() {
   const body = document.getElementById('sel-body');
+
+  // 1. Mostra spinner enquanto carrega
+  body.innerHTML = `
+    <div class="sel-state">
+      <div class="spinner" style="margin:0 0 8px"></div>
+      <div class="sel-state-desc">Carregando funcionários…</div>
+    </div>`;
+
+  // 2. Tenta buscar dados (Gist ou cache)
+  try {
+    await loadData();
+  } catch (err) {
+    // Sem Gist configurado e sem cache → instrução clara
+    if (err.message === 'not_configured') {
+      body.innerHTML = `
+        <div class="sel-state">
+          <div class="sel-state-icon">⚙️</div>
+          <div class="sel-state-title">App não configurado</div>
+          <div class="sel-state-desc">
+            Sincronize os dados no programa do PC (ponto.py → Sincronizar)
+            e cole a URL do Gist neste app.
+          </div>
+        </div>`;
+      return;
+    }
+    // Erro de rede mas sem cache
+    if (!FUNCIONARIOS.length) {
+      body.innerHTML = `
+        <div class="sel-state">
+          <div class="sel-state-icon">📡</div>
+          <div class="sel-state-title">Sem conexão</div>
+          <div class="sel-state-desc">Não foi possível carregar a lista. Verifique sua internet e tente novamente.</div>
+          <button class="sel-state-btn" onclick="carregarFuncionarios()">Tentar novamente</button>
+        </div>`;
+      return;
+    }
+    // Erro de rede mas tem cache — continua com dados offline
+    toast('📦 Exibindo dados offline');
+  }
+
+  // 3. Array vazio mesmo após carregar (Gist sem funcionários cadastrados)
+  if (!FUNCIONARIOS.length) {
+    body.innerHTML = `
+      <div class="sel-state">
+        <div class="sel-state-icon">👥</div>
+        <div class="sel-state-title">Nenhum funcionário cadastrado</div>
+        <div class="sel-state-desc">Cadastre os funcionários no programa do PC e sincronize novamente.</div>
+        <button class="sel-state-btn" onclick="carregarFuncionarios()">Atualizar</button>
+      </div>`;
+    return;
+  }
+
+  // 4. Renderiza lista
   body.innerHTML = '';
 
   const funcs  = FUNCIONARIOS.filter(f => !f.owner);
