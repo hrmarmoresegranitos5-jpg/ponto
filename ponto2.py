@@ -250,8 +250,9 @@ class CalcEngine:
             trabalhados = manha + tarde
             T = self._TOLERANCIA
             if e1  > ref["entrada"]      + T: alertas.append(f"Atraso ({horarios[0]})")
-            if sa  < ref["saida_almoco"] - T: alertas.append(f"Almoço cedo ({horarios[1]})")
-            if ret > ref["retorno"]      + 15: alertas.append(f"Retorno tardio ({horarios[2]})")
+            if not is_sabado:
+                if sa  < ref["saida_almoco"] - T: alertas.append(f"Almoço cedo ({horarios[1]})")
+                if ret > ref["retorno"]      + 15: alertas.append(f"Retorno tardio ({horarios[2]})")
             if e2  < ref["saida"]        - T: alertas.append(f"Saída antecipada ({horarios[3]})")
 
         elif qtd % 2 == 0:
